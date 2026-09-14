@@ -106,6 +106,14 @@ textarea{resize:vertical;min-height:70px;}
 .check-col h3{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--steel);border-bottom:1px solid var(--steel-l);padding-bottom:6px;margin:0 0 8px;}
 .check-item{display:flex;align-items:center;gap:9px;padding:6px 0;font-size:12.5px;border-bottom:1px solid #F0EEE7;}
 .check-item input[type=checkbox]{width:16px;height:16px;accent-color:var(--green);flex-shrink:0;}
+.check-item-row{padding:9px 0;border-bottom:1px solid #F0EEE7;}
+.check-item-row.incomplete{background:var(--red-bg);margin:0 -8px;padding:9px 8px;border-radius:6px;}
+.check-item-label{font-size:12.5px;margin-bottom:6px;color:var(--ink);}
+.chip-row.small .chip{padding:5px 11px;font-size:11px;}
+.chip.ok.on{background:var(--green);border-color:var(--green);}
+.chip.attn.on{background:var(--red);border-color:var(--red);}
+.checklist-attn-block{margin-top:8px;padding:10px;background:var(--paper-2);border-radius:8px;}
+.checklist-attn-block textarea{width:100%;min-height:50px;font-size:12px;}
 .check-progress{font-size:12px;color:var(--ink-soft);margin-bottom:14px;font-family:'IBM Plex Mono',monospace;}
 
 /* Photos */
@@ -259,7 +267,7 @@ function fmtDate(d){ if(!d) return '—'; const dt=new Date(d+'T00:00:00'); retu
    Paste your Apps Script Web App URL below once deployed (see README).
    Until filled in, this feature is simply skipped — everything else keeps working. */
 const SHEET_WEBHOOK_URL = "YOUR_APPS_SCRIPT_WEB_APP_URL";
-function syncToSheet(job){
+function syncMetaToSheet(){
   if(!SHEET_WEBHOOK_URL || SHEET_WEBHOOK_URL.indexOf('YOUR_') === 0) return;
   try{
     fetch(SHEET_WEBHOOK_URL, {
@@ -267,12 +275,42 @@ function syncToSheet(job){
       mode: 'no-cors',
       headers: {'Content-Type':'text/plain'},
       body: JSON.stringify({
+        kind: 'meta',
+        customers: DB.customers.map(c=>({
+          id:c.id, name:c.name, type:c.type, contactPerson:c.contactPerson, phone:c.phone, whatsapp:c.whatsapp,
+          email:c.email, address:c.address, status:c.status, contractId:c.contractId,
+          contractStart:c.contractStart, contractEnd:c.contractEnd, maintenanceFrequency:c.maintenanceFrequency,
+          serviceWindowStart:c.serviceWindowStart, serviceWindowEnd:c.serviceWindowEnd,
+          overdue: isOverdue(c) ? 'Yes' : 'No', nextServiceDue:c.nextServiceDue
+        })),
+        sites: DB.sites.map(s=>({id:s.id, customerId:s.customerId, customerName:custName(s.customerId), name:s.name, address:s.address, status:s.status})),
+        lifts: DB.lifts.map(l=>({id:l.id, customerId:l.customerId, customerName:custName(l.customerId), siteId:l.siteId, siteName:siteName(l.siteId), status:l.status})),
+        technicians: DB.technicians.map(t=>({name:t.name, hasPin: t.pin ? 'Yes' : 'No'}))
+      })
+    }).catch(()=>{});
+  }catch(e){ /* best-effort */ }
+}
+function syncToSheet(job){
+  if(!SHEET_WEBHOOK_URL || SHEET_WEBHOOK_URL.indexOf('YOUR_') === 0) return;
+  let answered=0, total=0, attention=0;
+  Object.values(job.checklist||{}).forEach(arr=>{
+    total += arr.length;
+    arr.forEach(it=>{ if(it.status) answered++; if(it.status==='Attention') attention++; });
+  });
+  try{
+    fetch(SHEET_WEBHOOK_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: {'Content-Type':'text/plain'},
+      body: JSON.stringify({
+        kind: 'job',
         jobId: job.jobId, jobCardNo: job.jobCardNo, liftId: job.liftId,
         customerName: job.customerName, address: job.address, technician: job.technician,
         date: job.date, status: job.status, priority: job.priority, timeIn: job.timeIn, timeOut: job.timeOut,
         type: job.type, breakdownReason: job.breakdownReason, rectification: job.rectification,
         notes: job.notes, finalStatus: job.finalStatus, whatsappStatus: job.whatsappStatus,
         charge: job.charge, paymentMethod: job.paymentMethod,
+        checklistProgress: answered+'/'+total, attentionItems: attention,
         parts: (job.parts||[]).map(p=>(p.no||'')+' '+(p.desc||'')+' x'+(p.qty||'1')).join('; ')
       })
     }).catch(()=>{});
@@ -344,7 +382,7 @@ function initCloudSync(){
       const data = d.data();
       const existing = DB.jobs.find(j=>j.jobId===d.id);
       // keep any already-fetched photos cached locally, since job docs no longer store photos
-      return Object.assign(mkJob({}), data, { status: normalizeStatus(data.status), photos: (existing && existing.photos) || [] });
+      return Object.assign(mkJob({}), data, { status: normalizeStatus(data.status), checklist: normalizeChecklist(data.checklist), photos: (existing && existing.photos) || [] });
     });
     DB.jobs = jobs;
     softRerender();
@@ -365,6 +403,7 @@ function softRerender(){
 async function saveDB(job){
   const jobToSave = job || (currentJobId ? DB.jobs.find(x=>x.jobId===currentJobId) : null);
   if(jobToSave) syncToSheet(jobToSave);
+  syncMetaToSheet();
   if(FB_READY){
     try{
       await fbDb.collection('app').doc('meta').set({
@@ -431,7 +470,7 @@ function seedDB(){
 }
 function mkJob(overrides){
   const checklist = {};
-  Object.entries(CHECKLIST_SECTIONS).forEach(([sec, items])=>{ checklist[sec] = items.map(()=>false); });
+  Object.entries(CHECKLIST_SECTIONS).forEach(([sec, items])=>{ checklist[sec] = items.map(()=>({status:'', issue:'', photoId:''})); });
   return Object.assign({
     jobId:'', jobCardNo:'', liftId:'', customerId:'', siteId:'', date:'', technician:'', status:'Open',
     customerName:'', customerPhone:'', customerEmail:'', callAttendedBy:'', address:'', timeIn:'', timeOut:'',
@@ -446,6 +485,19 @@ function normalizeStatus(s){
   if(s==='Pending') return 'Open';
   if(s==='In progress') return 'In Progress';
   return STATUS_STAGES.includes(s) ? s : 'Open';
+}
+function normalizeChecklist(checklist){
+  const out = {};
+  Object.entries(CHECKLIST_SECTIONS).forEach(([sec, items])=>{
+    const arr = (checklist && checklist[sec]) || [];
+    out[sec] = items.map((_,idx)=>{
+      const v = arr[idx];
+      if(v && typeof v === 'object') return {status:v.status||'', issue:v.issue||'', photoId:v.photoId||''};
+      if(v === true) return {status:'OK', issue:'', photoId:''};
+      return {status:'', issue:'', photoId:''};
+    });
+  });
+  return out;
 }
 
 /* ---------- login ---------- */
@@ -649,14 +701,124 @@ function onNewLiftCustChange(){
   sel.innerHTML = `<option value="">Select a site</option>` + sites.map(s=>`<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('');
 }
 function quickAddCustomer(){
-  const name = prompt('Customer name:');
-  if(!name || !name.trim()) return;
-  DB.counters.customer = (DB.counters.customer||0) + 1;
-  const id = 'CUST-' + String(DB.counters.customer).padStart(3,'0');
-  DB.customers.push({id, name:name.trim(), phone:'', status:'Active'});
+  openCustomerModal(null, ()=>{ renderLifts(); });
+}
+function isOverdue(c){
+  if(!c.serviceWindowEnd) return false;
+  const end = new Date(c.serviceWindowEnd);
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  return end < today;
+}
+function openCustomerModal(customerId, onSaved){
+  const c = customerId ? DB.customers.find(x=>x.id===customerId) : {
+    id:'', name:'', type:'AMC', contactPerson:'', phone:'', whatsapp:'', email:'', address:'', status:'Active',
+    contractId:'', contractStart:'', contractEnd:'', maintenanceFrequency:'Monthly', serviceWindowStart:'', serviceWindowEnd:'', nextServiceDue:''
+  };
+  const root = document.getElementById('modal-root');
+  root.classList.remove('hidden');
+  root.innerHTML = `
+    <div class="modal-backdrop" onclick="if(event.target===this) closeModal()">
+      <div class="modal-card" style="max-width:480px;">
+        <h3 style="text-align:left;">${customerId ? 'Edit customer' : 'New customer'}</h3>
+        <div style="text-align:left;max-height:70vh;overflow-y:auto;padding-right:4px;">
+          <label>Customer name</label><input id="cm-name" type="text" value="${esc(c.name)}">
+          <label style="margin-top:8px;">Customer type</label>
+          <select id="cm-type">${['AMC','Cash Customer','Service On Call'].map(t=>`<option ${c.type===t?'selected':''}>${t}</option>`).join('')}</select>
+          <div class="grid-2" style="margin-top:8px;">
+            <div><label>Contact person</label><input id="cm-contact" type="text" value="${esc(c.contactPerson)}"></div>
+            <div><label>Status</label><select id="cm-status">${['Active','Inactive'].map(s=>`<option ${c.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
+          </div>
+          <div class="grid-2" style="margin-top:8px;">
+            <div><label>Phone</label><input id="cm-phone" type="text" value="${esc(c.phone)}" placeholder="+973 XXXX XXXX"></div>
+            <div><label>WhatsApp</label><input id="cm-whatsapp" type="text" value="${esc(c.whatsapp)}" placeholder="+973 XXXX XXXX"></div>
+          </div>
+          <label style="margin-top:8px;">Email</label><input id="cm-email" type="text" value="${esc(c.email)}" placeholder="name@company.com">
+          <label style="margin-top:8px;">Address</label><input id="cm-address" type="text" value="${esc(c.address)}">
+          <label style="margin-top:8px;">Contract ID</label><input id="cm-contractid" type="text" value="${esc(c.contractId)}">
+          <div class="grid-2" style="margin-top:8px;">
+            <div><label>Contract start</label><input id="cm-cstart" type="date" value="${esc(c.contractStart)}"></div>
+            <div><label>Contract end</label><input id="cm-cend" type="date" value="${esc(c.contractEnd)}"></div>
+          </div>
+          <label style="margin-top:8px;">Maintenance frequency</label>
+          <select id="cm-freq">${['Weekly','Monthly','Quarterly'].map(f=>`<option ${c.maintenanceFrequency===f?'selected':''}>${f}</option>`).join('')}</select>
+          <div class="grid-2" style="margin-top:8px;">
+            <div><label>Service window start</label><input id="cm-swstart" type="date" value="${esc(c.serviceWindowStart)}"></div>
+            <div><label>Service window end</label><input id="cm-swend" type="date" value="${esc(c.serviceWindowEnd)}"></div>
+          </div>
+          <label style="margin-top:8px;">Next service due</label><input id="cm-nextdue" type="date" value="${esc(c.nextServiceDue)}">
+          ${isOverdue(c) ? '<div class="field-err" style="margin-top:8px;">Overdue — past the service window end date.</div>' : ''}
+        </div>
+        <div class="actions">
+          <button class="btn secondary" onclick="closeModal()">Cancel</button>
+          <button class="btn" onclick='saveCustomerModal(${customerId?`"${customerId}"`:'null'})'>Save</button>
+        </div>
+      </div>
+    </div>`;
+  window._customerModalOnSaved = onSaved;
+}
+function saveCustomerModal(customerId){
+  const name = document.getElementById('cm-name').value.trim();
+  if(!name){ toast('Enter a customer name'); return; }
+  const data = {
+    name,
+    type: document.getElementById('cm-type').value,
+    contactPerson: document.getElementById('cm-contact').value.trim(),
+    status: document.getElementById('cm-status').value,
+    phone: document.getElementById('cm-phone').value.trim(),
+    whatsapp: document.getElementById('cm-whatsapp').value.trim(),
+    email: document.getElementById('cm-email').value.trim(),
+    address: document.getElementById('cm-address').value.trim(),
+    contractId: document.getElementById('cm-contractid').value.trim(),
+    contractStart: document.getElementById('cm-cstart').value,
+    contractEnd: document.getElementById('cm-cend').value,
+    maintenanceFrequency: document.getElementById('cm-freq').value,
+    serviceWindowStart: document.getElementById('cm-swstart').value,
+    serviceWindowEnd: document.getElementById('cm-swend').value,
+    nextServiceDue: document.getElementById('cm-nextdue').value
+  };
+  if(customerId){
+    const c = DB.customers.find(x=>x.id===customerId);
+    Object.assign(c, data);
+  } else {
+    DB.counters.customer = (DB.counters.customer||0) + 1;
+    const id = 'CUST-' + String(DB.counters.customer).padStart(3,'0');
+    DB.customers.push(Object.assign({id}, data));
+  }
   saveDB();
-  renderLifts();
-  toast('Customer added — now select them for the new lift');
+  closeModal();
+  toast(customerId ? 'Customer updated' : 'Customer added');
+  if(window._customerModalOnSaved) window._customerModalOnSaved();
+  if(document.getElementById('customersList')) renderCustomersList();
+}
+function removeCustomer(customerId){
+  const usedByLifts = DB.lifts.filter(l=>l.customerId===customerId).length;
+  const msg = usedByLifts
+    ? `Remove this customer? ${usedByLifts} lift(s) are linked to them — those lifts will need re-linking to a new customer.`
+    : `Remove this customer? This can't be undone.`;
+  if(!confirm(msg)) return;
+  DB.customers = DB.customers.filter(c=>c.id!==customerId);
+  saveDB();
+  renderCustomersList();
+  toast('Customer removed');
+}
+function renderCustomersList(){
+  const el = document.getElementById('customersList');
+  if(!el) return;
+  const rows = DB.customers.map(c=>`
+    <div class="row-card" style="padding:10px 12px;margin-bottom:6px;">
+      <div class="row-top">
+        <div>
+          <div class="row-title" style="font-size:13px;">${esc(c.name)} <span class="row-id" style="display:inline;">· ${esc(c.type||'')} · ${esc(c.maintenanceFrequency||'')}</span></div>
+          <div class="row-id">${esc(c.contactPerson||'')} ${c.phone?'· '+esc(c.phone):''} ${isOverdue(c) ? '· <span style="color:var(--red);">Overdue</span>' : ''}</div>
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn secondary" style="padding:4px 10px;font-size:11px;" onclick='openCustomerModal("${esc(c.id)}", renderCustomersList)'>Edit</button>
+          <button class="btn danger" style="padding:4px 10px;font-size:11px;" onclick="removeCustomer('${esc(c.id)}')">Remove</button>
+        </div>
+      </div>
+    </div>`).join('');
+  el.innerHTML = rows || '<div class="empty">No customers added yet.</div>';
 }
 function quickAddSite(){
   const custId = document.getElementById('newLiftCust').value;
@@ -668,6 +830,7 @@ function quickAddSite(){
   const id = 'SITE-' + String(DB.counters.site).padStart(3,'0');
   DB.sites.push({id, customerId:custId, name:name.trim(), address, status:'Active'});
   saveDB();
+  syncMetaToSheet();
   renderLifts();
   onNewLiftCustChange();
   toast('Site added — now select it for the new lift');
@@ -683,7 +846,7 @@ function addLift(){
   if(DB.lifts.some(l=>l.id.toLowerCase()===id.toLowerCase())){ errEl.textContent = 'That lift ID already exists.'; errEl.style.display='block'; return; }
   errEl.style.display='none';
   DB.lifts.push({id, customerId:custEl.value, siteId:siteEl.value, status:'Active'});
-  saveDB(); renderLifts(); toast('Lift added');
+  saveDB(); syncMetaToSheet(); renderLifts(); toast('Lift added');
 }
 function removeLift(liftId){
   const jobs = DB.jobs.filter(j=>j.liftId===liftId);
@@ -693,6 +856,7 @@ function removeLift(liftId){
   if(!confirm(msg)) return;
   DB.lifts = DB.lifts.filter(l=>l.id!==liftId);
   saveDB();
+  syncMetaToSheet();
   renderLifts();
   toast('Lift removed');
 }
@@ -739,6 +903,7 @@ function saveLiftLink(liftId){
   lift.customerId = custId;
   lift.siteId = siteId;
   saveDB();
+  syncMetaToSheet();
   closeModal();
   renderLifts();
   toast('Lift link updated');
@@ -1063,20 +1228,28 @@ function renderJobDetail(){
 }
 function setDetailTab(tab){ currentDetailTab = tab; document.querySelectorAll('.subnav button').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab)); renderDetailTab(); }
 
+function isLockedForTech(j){
+  return ROLE==='tech' && ['Report Generated','Customer Acknowledged'].includes(j.status);
+}
+function lockWrap(j){
+  if(!isLockedForTech(j)) return;
+  const body = document.getElementById('detail-body');
+  body.innerHTML = '<div class="field-err" style="margin-bottom:14px;">🔒 Locked — the report has already been generated. Ask Back Office if something needs to change.</div><div style="pointer-events:none;opacity:0.55;">' + body.innerHTML + '</div>';
+}
 function renderDetailTab(){
   const j = getJob();
   const body = document.getElementById('detail-body');
-  if(currentDetailTab==='details') return renderDetailsTab(j, body);
-  if(currentDetailTab==='checklist') return renderChecklistTab(j, body);
+  if(currentDetailTab==='details'){ renderDetailsTab(j, body); lockWrap(j); return; }
+  if(currentDetailTab==='checklist'){ renderChecklistTab(j, body); lockWrap(j); return; }
   if(currentDetailTab==='photos'){
     if(FB_READY){
       body.innerHTML = '<div class="empty">Loading photos…</div>';
-      fetchPhotosForJob(j.jobId).then(()=> renderPhotosTab(getJob(), body));
+      fetchPhotosForJob(j.jobId).then(()=>{ const jj = getJob(); renderPhotosTab(jj, body); lockWrap(jj); });
       return;
     }
-    return renderPhotosTab(j, body);
+    renderPhotosTab(j, body); lockWrap(j); return;
   }
-  if(currentDetailTab==='signatures') return renderSignaturesTab(j, body);
+  if(currentDetailTab==='signatures'){ renderSignaturesTab(j, body); lockWrap(j); return; }
   if(currentDetailTab==='report'){
     if(FB_READY){
       body.innerHTML = '<div class="empty">Loading…</div>';
@@ -1226,29 +1399,102 @@ function saveDetails(){
 
 /* -- checklist tab -- */
 function renderChecklistTab(j, body){
-  let total=0, done=0;
-  Object.values(j.checklist).forEach(arr=>{ total+=arr.length; done+=arr.filter(Boolean).length; });
+  let total=0, answered=0, attnIncomplete=0;
+  Object.values(j.checklist).forEach(arr=>{
+    total+=arr.length;
+    arr.forEach(it=>{
+      if(it.status) answered++;
+      if(it.status==='Attention' && (!it.issue || !it.photoId)) attnIncomplete++;
+    });
+  });
   const cols = Object.entries(CHECKLIST_SECTIONS).map(([sec, items])=>{
-    const rows = items.map((label, idx)=>`
-      <label class="check-item" style="cursor:pointer;">
-        <input type="checkbox" ${j.checklist[sec][idx]?'checked':''} onchange="toggleCheck('${esc(sec)}',${idx},this.checked)">
-        ${esc(label)}
-      </label>`).join('');
+    const rows = items.map((label, idx)=>{
+      const it = j.checklist[sec][idx];
+      const incomplete = it.status==='Attention' && (!it.issue || !it.photoId);
+      return `
+      <div class="check-item-row ${incomplete?'incomplete':''}">
+        <div class="check-item-label">${esc(label)}</div>
+        <div class="chip-row small">
+          <div class="chip ok ${it.status==='OK'?'on':''}" onclick="setChecklistStatus('${esc(sec)}',${idx},'OK')">OK</div>
+          <div class="chip attn ${it.status==='Attention'?'on':''}" onclick="setChecklistStatus('${esc(sec)}',${idx},'Attention')">Attention</div>
+          <div class="chip ${it.status==='N/A'?'on':''}" onclick="setChecklistStatus('${esc(sec)}',${idx},'N/A')">N/A</div>
+        </div>
+        ${it.status==='Attention' ? `
+          <div class="checklist-attn-block">
+            <textarea placeholder="Issue description (required)" onchange="saveChecklistIssue('${esc(sec)}',${idx},this.value)">${esc(it.issue)}</textarea>
+            <label class="btn secondary" style="display:inline-block;font-size:11px;padding:6px 10px;margin-top:6px;cursor:pointer;">
+              ${it.photoId ? 'Replace photo' : 'Attach photo (required)'}
+              <input type="file" accept="image/*" capture="environment" style="display:none;" onchange="attachChecklistPhoto('${esc(sec)}',${idx},event)">
+            </label>
+            ${it.photoId ? '<span class="scan-hit" style="margin-left:8px;display:inline-block;">Photo attached ✓</span>' : '<span class="field-err" style="margin-left:8px;display:inline-block;">No photo yet</span>'}
+            ${!it.issue ? '<div class="field-err">Issue description is required</div>' : ''}
+          </div>` : ''}
+      </div>`;
+    }).join('');
     return `<div class="check-col"><h3>${esc(sec)}</h3>${rows}</div>`;
   }).join('');
   body.innerHTML = `
     <div class="panel">
-      <div class="check-progress">${done} / ${total} items checked</div>
+      <div class="check-progress">${answered} / ${total} items answered${attnIncomplete?` · ${attnIncomplete} attention item${attnIncomplete===1?'':'s'} missing photo/description`:''}</div>
       <div class="check-cols">${cols}</div>
     </div>
   `;
 }
-function toggleCheck(sec, idx, val){
+function setChecklistStatus(sec, idx, status){
   const j = getJob();
-  j.checklist[sec][idx] = val;
+  j.checklist[sec][idx].status = status;
   saveDB();
-  const [d,t] = (()=>{ let total=0, done=0; Object.values(j.checklist).forEach(arr=>{ total+=arr.length; done+=arr.filter(Boolean).length; }); return [done,total]; })();
-  document.querySelector('.check-progress').textContent = `${d} / ${t} items checked`;
+  renderChecklistTab(j, document.getElementById('detail-body'));
+}
+function saveChecklistIssue(sec, idx, text){
+  const j = getJob();
+  j.checklist[sec][idx].issue = text.trim();
+  saveDB();
+}
+function attachChecklistPhoto(sec, idx, e){
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = function(){
+    const img = new Image();
+    img.onload = async function(){
+      const canvas = document.createElement('canvas');
+      const maxW = 900;
+      const scale = Math.min(1, maxW/img.width);
+      canvas.width = img.width*scale; canvas.height = img.height*scale;
+      canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+      const j = getJob();
+      const label = CHECKLIST_SECTIONS[sec][idx];
+      const photo = {id:'PH-'+Date.now().toString(36)+Math.random().toString(36).slice(2,6), data:dataUrl, caption:'Attention: '+label, checklistRef: sec+'|'+idx};
+      if(FB_READY){
+        try{
+          await fbDb.collection('jobs').doc(j.jobId).collection('photos').doc(photo.id).set(photo);
+          j.photos.push(photo);
+        }catch(err){ toast('Could not upload photo. Check connection and try again.'); return; }
+      }else{
+        j.photos.push(photo);
+      }
+      j.checklist[sec][idx].photoId = photo.id;
+      saveDB();
+      renderChecklistTab(j, document.getElementById('detail-body'));
+      toast('Photo attached');
+    };
+    img.src = reader.result;
+  };
+  reader.readAsDataURL(file);
+  e.target.value = '';
+}
+function validateChecklist(j){
+  let total=0, answered=0, attnIncomplete=0;
+  Object.values(j.checklist).forEach(arr=>{
+    total+=arr.length;
+    arr.forEach(it=>{
+      if(it.status) answered++;
+      if(it.status==='Attention' && (!it.issue || !it.photoId)) attnIncomplete++;
+    });
+  });
+  return { total, answered, attnIncomplete, complete: answered===total && attnIncomplete===0 };
 }
 
 /* -- photos tab -- */
@@ -1401,15 +1647,23 @@ function clearSavedSig(which){
 
 /* -- report tab -- */
 function renderReportTab(j, body){
-  let total=0, done=0;
-  Object.values(j.checklist).forEach(arr=>{ total+=arr.length; done+=arr.filter(Boolean).length; });
+  const v = validateChecklist(j);
   const hasContact = j.customerPhone || j.customerEmail;
   const stageLabel = { 'Open':'Job is open', 'In Progress':'Job is in progress', 'Completed':'Job marked completed', 'Report Generated':'Report generated', 'Customer Acknowledged':'Customer acknowledged — job closed' }[j.status] || j.status;
 
   let actionsHtml = '';
-  if(j.status==='Open' || j.status==='In Progress'){
+  if(j.status==='Open'){
+    actionsHtml = `
+      <div class="desc">Starting the service records the time in and moves this job to "In Progress" on the office Dashboard.</div>
+      <button class="btn full" onclick="startService()">Start service</button>`;
+  } else if(j.status==='In Progress'){
+    const blockers = [];
+    if(v.answered < v.total) blockers.push((v.total-v.answered) + ' checklist item(s) not yet answered');
+    if(v.attnIncomplete) blockers.push(v.attnIncomplete + ' attention item(s) missing a photo or description');
+    if(!j.sig.tech || !j.sig.cust) blockers.push('signatures not yet collected');
     actionsHtml = `
       <div class="desc">Finish the checklist, photos, and signatures, then mark the job completed to unlock the report step.</div>
+      ${blockers.length ? `<div class="field-err" style="margin-bottom:10px;">Not ready yet: ${blockers.join(', ')}.</div>` : ''}
       <button class="btn full" onclick="markJobCompleted()">Mark job completed</button>`;
   } else if(j.status==='Completed'){
     actionsHtml = `
@@ -1432,7 +1686,7 @@ function renderReportTab(j, body){
   body.innerHTML = `
     <div class="panel">
       <h2>Complete &amp; send report</h2>
-      <div class="legend">${stageLabel} · Checklist: ${done}/${total} checked · Photos: ${j.photos.length} attached · Signatures: ${(j.sig.tech?1:0)+(j.sig.cust?1:0)}/2 collected · WhatsApp: ${esc(j.whatsappStatus||'Pending')}</div>
+      <div class="legend">${stageLabel} · Checklist: ${v.answered}/${v.total} answered · Photos: ${j.photos.length} attached · Signatures: ${(j.sig.tech?1:0)+(j.sig.cust?1:0)}/2 collected · WhatsApp: ${esc(j.whatsappStatus||'Pending')}</div>
       ${actionsHtml}
       <div id="sendNote" class="scan-status" style="margin-top:10px;"></div>
     </div>
@@ -1442,9 +1696,31 @@ function renderReportTab(j, body){
     </div>
   `;
 }
+function startService(){
+  const j = getJob();
+  j.status = 'In Progress';
+  j.timeIn = new Date().toTimeString().slice(0,5);
+  saveDB();
+  toast('Service started');
+  renderJobDetail();
+}
 function markJobCompleted(){
   const j = getJob();
+  const v = validateChecklist(j);
+  if(v.answered < v.total){
+    toast('Answer every checklist item before completing the job (' + (v.total-v.answered) + ' left)');
+    return;
+  }
+  if(v.attnIncomplete){
+    toast(v.attnIncomplete + ' attention item(s) still need a photo and description');
+    return;
+  }
+  if(!j.sig.tech || !j.sig.cust){
+    toast('Collect both signatures before completing the job');
+    return;
+  }
   j.status = 'Completed';
+  j.timeOut = new Date().toTimeString().slice(0,5);
   saveDB();
   toast('Job marked completed');
   renderJobDetail();
@@ -1552,9 +1828,17 @@ function buildPDFDoc(j){
     doc.text(sec.toUpperCase(), sx, sy); sy += 10;
     doc.setFont('helvetica','normal'); doc.setFontSize(7.3); doc.setTextColor(30,30,30);
     items.forEach((label, idx)=>{
-      const checked = j.checklist[sec][idx];
-      doc.text((checked?'[x] ':'[ ] ') + label, sx, sy, {maxWidth: secColW});
+      const it = j.checklist[sec][idx];
+      const tag = it.status ? '['+it.status+'] ' : '[ ] ';
+      doc.text(tag + label, sx, sy, {maxWidth: secColW});
       sy += 9.3;
+      if(it.status==='Attention' && it.issue){
+        doc.setTextColor(180,40,40);
+        const lines = doc.splitTextToSize('  → ' + it.issue, secColW);
+        doc.text(lines, sx, sy);
+        sy += lines.length*8.5;
+        doc.setTextColor(30,30,30);
+      }
     });
     maxYUsed = Math.max(maxYUsed, sy);
   });
@@ -1654,6 +1938,13 @@ function renderDashboard(){
     <div id="dashList"></div>
 
     <div class="panel" style="margin-top:18px;">
+      <h2>Customers</h2>
+      <div class="desc">Full customer records — contract, service window, and contact details. Feeds the QR auto-fill and the live Sheet sync.</div>
+      <div id="customersList"></div>
+      <div style="margin-top:10px;"><button class="btn secondary" onclick="quickAddCustomer()">+ Add customer</button></div>
+    </div>
+
+    <div class="panel" style="margin-top:18px;">
       <h2>Team &amp; login PINs</h2>
       <div class="desc">Names here appear on the login screen. PIN is optional — it's a courtesy check, not real security, since this app has no server. Leave blank for no PIN.</div>
       <div id="teamList"></div>
@@ -1667,6 +1958,7 @@ function renderDashboard(){
     </div>
   `;
   renderDashboardList();
+  renderCustomersList();
   renderTeamList();
 }
 function renderTeamList(){
@@ -1692,6 +1984,7 @@ function addTeamMember(){
   if(DB.technicians.some(t=>t.name.toLowerCase()===name.toLowerCase())){ toast('Already in the list'); return; }
   DB.technicians.push({name, pin:''});
   saveDB();
+  syncMetaToSheet();
   inp.value = '';
   renderTeamList();
   toast('Added ' + name);
@@ -1709,6 +2002,7 @@ function removeTech(i){
   if(!confirm('Remove ' + t.name + ' from the login list?')) return;
   DB.technicians.splice(i,1);
   saveDB();
+  syncMetaToSheet();
   renderTeamList();
 }
 function setOfficePin(){
