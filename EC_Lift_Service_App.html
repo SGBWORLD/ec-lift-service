@@ -574,7 +574,10 @@ function renderLifts(){
         <span class="badge ${l.status.toLowerCase()}">${esc(l.status)}</span>
       </div>
       <div class="row-meta" onclick="filterJobsByLift('${esc(l.id)}')" style="cursor:pointer;">${jobs.length} job${jobs.length===1?'':'s'} on record${open?` · ${open} open`:''}</div>
-      <div style="margin-top:10px;"><button class="btn secondary" onclick="event.stopPropagation();viewLiftQR('${esc(l.id)}')">View / print QR code</button></div>
+      <div style="margin-top:10px;display:flex;gap:8px;">
+        <button class="btn secondary" onclick="event.stopPropagation();viewLiftQR('${esc(l.id)}')">View / print QR code</button>
+        <button class="btn danger" onclick="event.stopPropagation();removeLift('${esc(l.id)}')">Remove</button>
+      </div>
     </div>`;
   }).join('');
   const custOpts = DB.customers.map(c=>`<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');
@@ -648,6 +651,17 @@ function addLift(){
   errEl.style.display='none';
   DB.lifts.push({id, customerId:custEl.value, siteId:siteEl.value, status:'Active'});
   saveDB(); renderLifts(); toast('Lift added');
+}
+function removeLift(liftId){
+  const jobs = DB.jobs.filter(j=>j.liftId===liftId);
+  const msg = jobs.length
+    ? `Remove ${liftId}? It has ${jobs.length} job${jobs.length===1?'':'s'} on record — those job records will stay, but the lift itself will no longer appear here or in dropdowns.`
+    : `Remove ${liftId}? This can't be undone.`;
+  if(!confirm(msg)) return;
+  DB.lifts = DB.lifts.filter(l=>l.id!==liftId);
+  saveDB();
+  renderLifts();
+  toast('Lift removed');
 }
 function filterJobsByLift(liftId){
   window._jobFilter = liftId;
@@ -1482,16 +1496,38 @@ function renderDashboardList(){
   if(status) list = list.filter(j=>j.status===status);
   if(q) list = list.filter(j => [j.jobId,j.liftId,j.customerName,j.technician,j.jobCardNo].join(' ').toLowerCase().includes(q));
   const html = list.map(j=>`
-    <div class="row-card" onclick="openFromDashboard('${esc(j.jobId)}')">
-      <div class="row-top">
+    <div class="row-card">
+      <div class="row-top" onclick="openFromDashboard('${esc(j.jobId)}')" style="cursor:pointer;">
         <div><div class="row-title">${esc(j.jobId)} — ${esc(j.liftId)}</div><div class="row-id">${esc(j.customerName||'No customer name')} · Tech: ${esc(j.technician||'—')}</div></div>
         <span class="badge ${j.status.toLowerCase().replace(' ','')}">${esc(j.status)}</span>
       </div>
-      <div class="row-meta">${fmtDate(j.date)} · ${esc(j.type)} ${j.status==='Completed' ? '· report available' : ''}</div>
+      <div class="row-meta" onclick="openFromDashboard('${esc(j.jobId)}')" style="cursor:pointer;">${fmtDate(j.date)} · ${esc(j.type)} ${j.status==='Completed' ? '· report available' : ''}</div>
+      <div style="margin-top:10px;"><button class="btn danger" style="padding:6px 12px;font-size:12px;" onclick="event.stopPropagation();deleteJob('${esc(j.jobId)}')">Delete job</button></div>
     </div>`).join('');
   document.getElementById('dashList').innerHTML = html || '<div class="empty"><div class="big">No jobs match</div>Try a different search or status.</div>';
 }
 function openFromDashboard(jobId){ openJob(jobId); }
+async function deleteJob(jobId){
+  const ok = confirm('This action is not recoverable. Do you really want to delete this job record (' + jobId + ')? All its checklist, photo, and signature data will be permanently lost.');
+  if(!ok) return;
+  DB.jobs = DB.jobs.filter(j=>j.jobId!==jobId);
+  if(FB_READY){
+    try{
+      await fbDb.collection('jobs').doc(jobId).delete();
+      const photosSnap = await fbDb.collection('jobs').doc(jobId).collection('photos').get();
+      const batch = fbDb.batch();
+      photosSnap.docs.forEach(d=>batch.delete(d.ref));
+      if(photosSnap.docs.length) await batch.commit();
+    }catch(e){
+      toast('Could not delete online — check connection and try again.');
+      return;
+    }
+  }else{
+    saveDB();
+  }
+  renderDashboardList();
+  toast('Job ' + jobId + ' deleted');
+}
 
 /* ---------- init ---------- */
 if('serviceWorker' in navigator){
