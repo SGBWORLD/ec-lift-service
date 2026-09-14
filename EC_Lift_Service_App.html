@@ -871,7 +871,17 @@ function manualPickGo(){
 }
 function goToLiftJob(liftId){
   const existing = DB.jobs.find(j=>j.liftId===liftId && j.status!=='Completed');
-  if(existing){ existing.technician = existing.technician || TECH_NAME; saveDB(existing); openJob(existing.jobId); return; }
+  if(existing){
+    existing.technician = existing.technician || TECH_NAME;
+    const lift = DB.lifts.find(l=>l.id===liftId);
+    if(lift && !existing.customerName){
+      existing.customerId = lift.customerId;
+      existing.siteId = lift.siteId;
+      existing.customerName = custName(lift.customerId);
+      existing.address = siteAddress(lift.siteId);
+    }
+    saveDB(existing); openJob(existing.jobId); return;
+  }
   const lift = DB.lifts.find(l=>l.id===liftId);
   DB.counters.job += 1;
   const jobId = 'JOB-' + String(DB.counters.job).padStart(3,'0');
