@@ -749,17 +749,19 @@ async function startScanner(){
   const ctx = canvas.getContext('2d');
   function tick(){
     if(!scanStream) return;
-    if(video.readyState === video.HAVE_ENOUGH_DATA){
-      canvas.width = video.videoWidth; canvas.height = video.videoHeight;
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const imgData = ctx.getImageData(0,0,canvas.width,canvas.height);
-      const code = jsQR(imgData.data, imgData.width, imgData.height);
-      if(code && code.data && code.data.startsWith('ECLIFT:')){
-        const liftId = code.data.slice(7);
-        handleScanHit(liftId);
-        return;
+    try{
+      if(video.readyState === video.HAVE_ENOUGH_DATA && video.videoWidth > 0 && video.videoHeight > 0){
+        canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imgData = ctx.getImageData(0,0,canvas.width,canvas.height);
+        const code = jsQR(imgData.data, imgData.width, imgData.height, { inversionAttempts: 'attemptBoth' });
+        if(code && code.data && code.data.startsWith('ECLIFT:')){
+          const liftId = code.data.slice(7);
+          handleScanHit(liftId);
+          return;
+        }
       }
-    }
+    }catch(e){ /* skip this frame, keep scanning */ }
     scanRAF = requestAnimationFrame(tick);
   }
   scanRAF = requestAnimationFrame(tick);
