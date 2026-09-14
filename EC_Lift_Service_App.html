@@ -732,6 +732,12 @@ async function startScanner(){
   const status = document.getElementById('scanStatus');
   document.getElementById('scanWrapBox').style.display = 'block';
   document.getElementById('scanStartBox').style.display = 'none';
+  if(typeof jsQR !== 'function'){
+    status.innerHTML = `<div class="field-err">Scanner library did not load (no internet, or it's blocked on this network). Use "pick a lift manually" below instead.</div>`;
+    document.getElementById('scanWrapBox').style.display = 'none';
+    document.getElementById('scanStartBox').style.display = 'block';
+    return;
+  }
   try{
     scanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
   }catch(e){
@@ -743,25 +749,53 @@ async function startScanner(){
   const video = document.getElementById('scanVideo');
   video.srcObject = scanStream;
   video.setAttribute('playsinline', true);
-  await video.play();
-  status.textContent = 'Point the camera at the lift QR code.';
+  try{
+    await video.play();
+  }catch(e){
+    status.innerHTML = `<div class="field-err">Camera opened but could not start the video feed (${esc(e.message||e.name||'unknown error')}). Try again, or use "pick a lift manually" below.</div>`;
+    return;
+  }
+  status.textContent = 'Starting camera…';
+  let frames = 0, lastDbgUpdate = 0;
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
   function tick(){
     if(!scanStream) return;
     try{
       if(video.readyState === video.HAVE_ENOUGH_DATA && video.videoWidth > 0 && video.videoHeight > 0){
+        frames++;
         canvas.width = video.videoWidth; canvas.height = video.videoHeight;
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         const imgData = ctx.getImageData(0,0,canvas.width,canvas.height);
         const code = jsQR(imgData.data, imgData.width, imgData.height, { inversionAttempts: 'attemptBoth' });
-        if(code && code.data && code.data.startsWith('ECLIFT:')){
-          const liftId = code.data.slice(7);
-          handleScanHit(liftId);
-          return;
+        if(code && code.data){
+          let liftId = null;
+          if(code.data.startsWith('ECLIFT:')){
+            liftId = code.data.slice(7).trim();
+          } else {
+            const m = code.data.match(/Lift\s*ID\s*[:\-]\s*([^\s|\n]+)/i);
+            if(m) liftId = m[1].trim();
+          }
+          if(liftId){
+            handleScanHit(liftId);
+            return;
+          } else {
+            status.textContent = 'Saw a QR code, but could not read a lift ID from it. Frame ' + video.videoWidth + '×' + video.videoHeight + ', frames scanned: ' + frames;
+          }
+        } else if(Date.now() - lastDbgUpdate > 1000){
+          lastDbgUpdate = Date.now();
+          status.textContent = 'Point the camera at the lift QR code. (camera ' + video.videoWidth + '×' + video.videoHeight + ', frames scanned: ' + frames + ')';
         }
+      } else if(Date.now() - lastDbgUpdate > 1000){
+        lastDbgUpdate = Date.now();
+        status.textContent = 'Waiting for camera feed… (readyState: ' + video.readyState + ')';
       }
-    }catch(e){ /* skip this frame, keep scanning */ }
+    }catch(e){
+      if(Date.now() - lastDbgUpdate > 1000){
+        lastDbgUpdate = Date.now();
+        status.textContent = 'Scan error: ' + (e.message || e.name || 'unknown') + ' — still trying…';
+      }
+    }
     scanRAF = requestAnimationFrame(tick);
   }
   scanRAF = requestAnimationFrame(tick);
