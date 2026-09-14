@@ -266,7 +266,7 @@ function fmtDate(d){ if(!d) return '—'; const dt=new Date(d+'T00:00:00'); retu
 /* ---------- Google Sheets sync (live Excel-style record) ----------
    Paste your Apps Script Web App URL below once deployed (see README).
    Until filled in, this feature is simply skipped — everything else keeps working. */
-const SHEET_WEBHOOK_URL = "YOUR_APPS_SCRIPT_WEB_APP_URL";
+const SHEET_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbwTzx1nAu4GC2AbYwpMACbuQvdFv1CLs8cSq9Fq7T_HgTgB42On_jyu5JQ61tcKc9xs/exec";
 function syncMetaToSheet(){
   if(!SHEET_WEBHOOK_URL || SHEET_WEBHOOK_URL.indexOf('YOUR_') === 0) return;
   try{
