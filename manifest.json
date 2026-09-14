@@ -1,0 +1,15 @@
+{
+  "name": "Emirates Contracting — Lift Service",
+  "short_name": "EC Lift",
+  "description": "Digital lift service reporting for Emirates Contracting technicians and back office.",
+  "start_url": "./EC_Lift_Service_App.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#EFEDE6",
+  "theme_color": "#1C2530",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

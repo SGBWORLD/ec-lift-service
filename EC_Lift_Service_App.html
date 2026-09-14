@@ -1,0 +1,1440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Emirates Contracting — Lift Service</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1C2530">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="EC Lift">
+<style>
+:root{
+  --navy:#1C2530; --navy-2:#26313E; --steel:#4A7A96; --steel-l:#DCE6EA;
+  --paper:#EFEDE6; --paper-2:#F7F6F2; --ink:#1A1E23; --ink-soft:#5B6470;
+  --line:#CFCABE; --yellow:#F2B705; --yellow-d:#8A6600; --green:#2F7D52; --green-bg:#E4F1E9;
+  --red:#B23A2E; --red-bg:#F8E6E3; --amber-bg:#FCEFD4;
+  --radius:10px;
+}
+*{box-sizing:border-box;}
+body{margin:0;font-family:'IBM Plex Sans',sans-serif;background:var(--paper);color:var(--ink);}
+.mono{font-family:'IBM Plex Mono',monospace;}
+#app{max-width:1100px;margin:0 auto;min-height:100vh;background:var(--paper-2);box-shadow:0 0 0 1px var(--line);}
+
+/* Top bar */
+.topbar{background:var(--navy);color:#fff;padding:14px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;}
+.brand{display:flex;align-items:center;gap:10px;}
+.brand-mark{width:34px;height:34px;border:2px solid var(--yellow);border-radius:4px;display:flex;align-items:center;justify-content:center;font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:13px;color:var(--yellow);flex-shrink:0;}
+.brand-text .name{font-weight:600;font-size:15px;line-height:1.2;}
+.brand-text .sub{font-size:11px;color:#9FB0BC;letter-spacing:.02em;}
+.sync-pill{font-size:11px;color:#9FB0BC;font-family:'IBM Plex Mono',monospace;display:flex;align-items:center;gap:6px;}
+.sync-dot{width:6px;height:6px;border-radius:50%;background:var(--green);}
+
+/* Nav */
+.nav{display:flex;border-bottom:1px solid var(--line);background:var(--paper-2);overflow-x:auto;}
+.nav button{flex:0 0 auto;padding:12px 18px;border:none;background:none;font-family:inherit;font-size:13px;font-weight:500;color:var(--ink-soft);cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;}
+.nav button.active{color:var(--navy);border-bottom-color:var(--yellow);}
+.nav button:hover{color:var(--navy);}
+
+.view{padding:20px;}
+.hidden{display:none !important;}
+
+/* Section headers */
+.section-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;}
+.section-head h1{font-size:19px;font-weight:600;margin:0;color:var(--navy);}
+.section-head .count{font-size:12px;color:var(--ink-soft);font-family:'IBM Plex Mono',monospace;}
+
+/* Buttons */
+button.btn{font-family:inherit;font-size:13px;font-weight:500;padding:9px 16px;border-radius:6px;border:1px solid var(--navy);background:var(--navy);color:#fff;cursor:pointer;}
+button.btn:hover{background:#0F161D;}
+button.btn.secondary{background:transparent;color:var(--navy);border:1px solid var(--line);}
+button.btn.secondary:hover{background:#fff;border-color:var(--navy);}
+button.btn.danger{background:transparent;color:var(--red);border:1px solid var(--red-bg);}
+button.btn.danger:hover{background:var(--red-bg);}
+button.btn.full{width:100%;}
+button.btn:disabled{opacity:.45;cursor:not-allowed;}
+
+/* Cards / list rows */
+.row-card{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;margin-bottom:10px;cursor:pointer;transition:border-color .1s;}
+.row-card:hover{border-color:var(--steel);}
+.row-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;}
+.row-title{font-weight:600;font-size:14px;color:var(--navy);}
+.row-id{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-soft);margin-top:2px;}
+.row-meta{font-size:12px;color:var(--ink-soft);margin-top:6px;}
+.empty{padding:36px 16px;text-align:center;color:var(--ink-soft);font-size:13px;border:1px dashed var(--line);border-radius:var(--radius);}
+.empty .big{font-size:14px;color:var(--navy);font-weight:500;margin-bottom:4px;}
+
+/* Badges */
+.badge{display:inline-block;font-size:11px;font-weight:500;padding:3px 9px;border-radius:20px;}
+.badge.active,.badge.completed{background:var(--green-bg);color:var(--green);}
+.badge.pending,.badge.progress,.badge.inprogress{background:var(--amber-bg);color:var(--yellow-d);}
+.badge.inactive,.badge.overdue{background:var(--red-bg);color:var(--red);}
+
+/* Forms */
+label{display:block;font-size:12px;font-weight:500;color:var(--ink-soft);margin:12px 0 5px;}
+label:first-child{margin-top:0;}
+input[type=text],input[type=date],input[type=time],input[type=number],select,textarea{
+  width:100%;font-family:inherit;font-size:13px;padding:9px 10px;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--ink);
+}
+textarea{resize:vertical;min-height:70px;}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:0 14px;}
+.grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 14px;}
+@media(max-width:640px){.grid-2,.grid-3{grid-template-columns:1fr;}}
+.field-err{color:var(--red);font-size:11px;margin-top:4px;}
+
+/* Panel / card block */
+.panel{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:16px;}
+.panel h2{font-size:14px;font-weight:600;margin:0 0 4px;color:var(--navy);}
+.panel .desc{font-size:12px;color:var(--ink-soft);margin-bottom:14px;}
+
+/* Job detail tabs */
+.subnav{display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--line);flex-wrap:wrap;}
+.subnav button{font-family:inherit;font-size:12px;font-weight:500;padding:8px 14px;background:none;border:none;border-bottom:2px solid transparent;color:var(--ink-soft);cursor:pointer;}
+.subnav button.active{color:var(--navy);border-bottom-color:var(--steel);}
+
+/* Checklist */
+.check-cols{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;}
+@media(max-width:800px){.check-cols{grid-template-columns:1fr;}}
+.check-col h3{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--steel);border-bottom:1px solid var(--steel-l);padding-bottom:6px;margin:0 0 8px;}
+.check-item{display:flex;align-items:center;gap:9px;padding:6px 0;font-size:12.5px;border-bottom:1px solid #F0EEE7;}
+.check-item input[type=checkbox]{width:16px;height:16px;accent-color:var(--green);flex-shrink:0;}
+.check-progress{font-size:12px;color:var(--ink-soft);margin-bottom:14px;font-family:'IBM Plex Mono',monospace;}
+
+/* Photos */
+.photo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;margin-top:12px;}
+.photo-tile{position:relative;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff;}
+.photo-tile img{width:100%;height:90px;object-fit:cover;display:block;}
+.photo-tile .cap{font-size:10px;padding:5px 7px;color:var(--ink-soft);}
+.photo-tile .rm{position:absolute;top:4px;right:4px;background:rgba(28,37,48,.75);color:#fff;border:none;border-radius:4px;width:20px;height:20px;font-size:12px;cursor:pointer;}
+.upload-box{border:1.5px dashed var(--line);border-radius:8px;padding:20px;text-align:center;cursor:pointer;color:var(--ink-soft);font-size:12px;}
+.upload-box:hover{border-color:var(--steel);color:var(--steel);}
+
+/* Signature */
+.sig-pad-wrap{border:1px solid var(--line);border-radius:8px;background:#fff;}
+canvas.sig-pad{width:100%;height:150px;display:block;touch-action:none;cursor:crosshair;}
+.sig-actions{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-top:1px solid var(--line);}
+.sig-actions span{font-size:11px;color:var(--ink-soft);}
+.sig-saved{display:flex;align-items:center;gap:10px;padding:10px;background:var(--green-bg);border-radius:8px;font-size:12px;color:var(--green);}
+.sig-saved img{height:50px;background:#fff;border-radius:4px;}
+
+/* Toast */
+#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--navy);color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;opacity:0;pointer-events:none;transition:all .2s;z-index:99;}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+/* Type toggle chips */
+.chip-row{display:flex;gap:8px;flex-wrap:wrap;}
+.chip{padding:7px 13px;border:1px solid var(--line);border-radius:20px;font-size:12px;cursor:pointer;background:#fff;color:var(--ink-soft);}
+.chip.on{background:var(--navy);color:#fff;border-color:var(--navy);}
+
+.footer-note{font-size:11px;color:var(--ink-soft);text-align:center;padding:16px;border-top:1px solid var(--line);}
+.legend{font-size:11px;color:var(--ink-soft);background:var(--amber-bg);border-radius:8px;padding:8px 12px;margin-bottom:14px;}
+
+/* Role toggle */
+.role-toggle{display:flex;background:#0F161D;border-radius:20px;padding:2px;flex-shrink:0;}
+.role-toggle button{font-family:inherit;font-size:11px;font-weight:500;padding:6px 12px;border-radius:18px;border:none;background:none;color:#9FB0BC;cursor:pointer;}
+.role-toggle button.on{background:var(--yellow);color:#1C2530;}
+
+/* Login screen */
+.login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--paper);padding:20px;}
+.login-card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:28px 24px;max-width:380px;width:100%;box-shadow:0 4px 24px rgba(28,37,48,.08);}
+.login-card .brand-mark{width:44px;height:44px;font-size:16px;margin:0 auto 14px;border:2px solid var(--yellow);border-radius:6px;display:flex;align-items:center;justify-content:center;font-family:'IBM Plex Mono',monospace;font-weight:600;color:var(--navy);}
+.login-card h1{font-size:16px;text-align:center;margin:0 0 4px;color:var(--navy);}
+.login-card .sub{font-size:12px;text-align:center;color:var(--ink-soft);margin-bottom:20px;}
+.login-list{display:flex;flex-direction:column;gap:8px;max-height:300px;overflow-y:auto;margin-bottom:4px;}
+.login-item{display:flex;align-items:center;justify-content:space-between;padding:11px 14px;border:1px solid var(--line);border-radius:8px;background:var(--paper-2);cursor:pointer;font-size:13px;color:var(--ink);}
+.login-item:hover{border-color:var(--steel);}
+.login-item .tag{font-size:10px;color:var(--ink-soft);font-family:'IBM Plex Mono',monospace;letter-spacing:.04em;}
+.login-item.office{border-color:var(--navy);background:#fff;font-weight:500;}
+.login-add{font-size:12px;color:var(--steel);text-align:center;margin-top:12px;cursor:pointer;text-decoration:underline;}
+.login-pin-box{margin-top:16px;border-top:1px solid var(--line);padding-top:14px;}
+
+/* Current user pill */
+.user-pill{display:flex;align-items:center;gap:8px;font-size:12px;color:#fff;}
+.user-pill button{font-family:inherit;font-size:11px;padding:4px 10px;border-radius:14px;border:1px solid #3A4652;background:none;color:#9FB0BC;cursor:pointer;}
+.user-pill button:hover{border-color:#fff;color:#fff;}
+
+/* Modal (QR display) */
+.modal-backdrop{position:fixed;inset:0;background:rgba(15,22,29,.6);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px;}
+.modal-card{background:#fff;border-radius:12px;padding:22px;max-width:320px;width:100%;text-align:center;}
+.modal-card h3{margin:0 0 4px;font-size:15px;color:var(--navy);}
+.modal-card .sub{font-size:11px;color:var(--ink-soft);margin-bottom:14px;font-family:'IBM Plex Mono',monospace;}
+.qr-box{display:flex;justify-content:center;margin:10px 0 16px;}
+.modal-card .actions{display:flex;gap:8px;}
+.modal-card .actions button{flex:1;}
+
+/* Scanner */
+.scan-wrap{background:#000;border-radius:12px;overflow:hidden;position:relative;max-width:420px;margin:0 auto;}
+.scan-wrap video{width:100%;display:block;}
+.scan-frame{position:absolute;inset:15%;border:2px solid var(--yellow);border-radius:12px;pointer-events:none;}
+.scan-status{text-align:center;font-size:12px;color:var(--ink-soft);margin-top:12px;}
+.scan-hit{background:var(--green-bg);color:var(--green);padding:10px 14px;border-radius:8px;font-size:13px;text-align:center;margin-top:12px;}
+
+/* Dashboard */
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:18px;}
+.stat-card{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:14px;}
+.stat-card .num{font-size:22px;font-weight:600;color:var(--navy);font-family:'IBM Plex Mono',monospace;}
+.stat-card .lbl{font-size:11px;color:var(--ink-soft);margin-top:2px;}
+.search-row{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;}
+.search-row input{flex:1;min-width:160px;}
+.search-row select{width:auto;}
+.send-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
+.send-row button{flex:1;min-width:140px;}
+</style>
+</head>
+<body>
+<div id="login-screen"></div>
+<div id="app" style="display:none;">
+  <div class="topbar">
+    <div class="brand">
+      <div class="brand-mark">EC</div>
+      <div class="brand-text">
+        <div class="name">Emirates Contracting</div>
+        <div class="sub">Lift service &amp; maintenance</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:14px;">
+      <div class="role-toggle hidden" id="roleToggle">
+        <button id="role-tech" class="on" onclick="setRole('tech')">Technician</button>
+        <button id="role-office" onclick="setRole('office')">Back office</button>
+      </div>
+      <div class="user-pill hidden" id="userPill">
+        <span id="userPillLabel"></span>
+        <button onclick="switchUser()">Switch</button>
+      </div>
+      <div class="sync-pill"><span class="sync-dot"></span><span id="syncLabel">Synced</span></div>
+    </div>
+  </div>
+  <div class="nav" id="mainNav">
+    <button data-view="scan" class="active">Scan QR</button>
+    <button data-view="lifts">Lifts</button>
+    <button data-view="jobs">Jobs</button>
+    <button data-view="newjob">New job</button>
+    <button data-view="dashboard">Dashboard</button>
+  </div>
+  <div id="noCloudBanner" class="hidden" style="background:var(--amber-bg);color:var(--yellow-d);font-size:12px;padding:8px 16px;text-align:center;">Cloud sync isn't connected yet — changes stay on this device only. See setup instructions.</div>
+
+  <div class="view" id="view-scan"></div>
+  <div class="view hidden" id="view-lifts"></div>
+  <div class="view hidden" id="view-jobs"></div>
+  <div class="view hidden" id="view-newjob"></div>
+  <div class="view hidden" id="view-jobdetail"></div>
+  <div class="view hidden" id="view-dashboard"></div>
+  <div class="view hidden" id="modal-root"></div>
+
+  <div class="footer-note">Data is stored for this app link and shared across everyone using it — no account, no cost.</div>
+</div>
+<div id="toast"></div>
+
+<script>
+/* ---------- state ---------- */
+let DB = { lifts: [], jobs: [], counters: { lift: 5, job: 2, report: 2 } };
+let currentJobId = null;
+let currentDetailTab = 'checklist';
+let sigPadTech = null, sigPadCust = null;
+
+const CHECKLIST_SECTIONS = {
+  'Machine room': ['Main switches','Motor oil level','Motor terminal tightness','Motor feed back sensor','Main rope / OSG rope','Divertors','Brake operation / brake liner','Controller cleaning','Controller wire tightness','Relay / contactor operation','Controller','M/c room earthing','OSG operation','Clean machine','M/c room light/fan/ventilation','M/c room door lock'],
+  'General & car': ['Emergency alarm','Emergency light','Intercom','Car calls','Other COP functions','Car indicator','Play in car','Car stopping & leveling','Ride comfort','Door operation/delocking key','Safety edge/IRL safety','Landing push box/buttons','Landing indicator','Car and landing sill','Car light','Car fan'],
+  'Car top & pit': ['Car top safety','Inspection box/hand lamp','Guide rail lubrication','Door lubrication','Door operation function','Door operation belt/chain','Landing/car door track roller','Landing/car door lock','Landing/door smoothness','Clean car top','Guide shoe-car/cwt','Car top/car bottom isolation','H.v/car top wire tightness','Pit cleaning','Tension wl/safety gear','Buffer/cwt']
+};
+
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 1800);
+}
+function esc(s){ return (s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function fmtDate(d){ if(!d) return '—'; const dt=new Date(d+'T00:00:00'); return isNaN(dt) ? d : dt.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}); }
+
+/* ---------- Firebase (cloud sync) ----------
+   Paste your own project's config below (Firebase console → Project settings → your web app).
+   Until this is filled in, the app falls back to preview-only storage (no cross-device sync). */
+const firebaseConfig = {
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT.firebaseapp.com",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_PROJECT.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId: "YOUR_APP_ID"
+};
+let fbDb = null, FB_READY = false;
+try{
+  if(firebaseConfig.apiKey && firebaseConfig.apiKey.indexOf('YOUR_') !== 0){
+    firebase.initializeApp(firebaseConfig);
+    fbDb = firebase.firestore();
+    fbDb.enablePersistence({synchronizeTabs:true}).catch(()=>{});
+    FB_READY = true;
+  }
+}catch(e){ FB_READY = false; }
+
+/* ---------- persistence ---------- */
+async function loadDB(){
+  // Fallback path only (used when Firebase isn't configured, e.g. quick preview).
+  try{
+    if(window.storage){
+      const res = await window.storage.get('lift-service-db', true);
+      if(res && res.value){ DB = JSON.parse(res.value); }
+      else { seedDB(); await saveDB(); }
+    } else {
+      seedDB();
+    }
+  }catch(e){
+    seedDB();
+  }
+  if(!DB.technicians) DB.technicians = [{name:'Ali', pin:''}, {name:'Ahmed', pin:''}];
+  if(typeof DB.officePin !== 'string') DB.officePin = '';
+}
+function initCloudSync(){
+  fbDb.collection('app').doc('meta').onSnapshot(doc=>{
+    if(doc.exists){
+      const d = doc.data();
+      DB.lifts = d.lifts || [];
+      DB.technicians = d.technicians && d.technicians.length ? d.technicians : [{name:'Ali', pin:''}, {name:'Ahmed', pin:''}];
+      DB.officePin = d.officePin || '';
+      DB.counters = d.counters || {lift:5, job:2, report:2};
+    } else {
+      seedDB();
+      saveDB();
+    }
+    document.getElementById('syncLabel').textContent = 'Synced';
+    softRerender();
+  }, ()=>{ document.getElementById('syncLabel').textContent = 'Sync error'; });
+
+  fbDb.collection('jobs').onSnapshot(snap=>{
+    const jobs = snap.docs.map(d=>{
+      const data = d.data();
+      const existing = DB.jobs.find(j=>j.jobId===d.id);
+      // keep any already-fetched photos cached locally, since job docs no longer store photos
+      return Object.assign(mkJob({}), data, { photos: (existing && existing.photos) || [] });
+    });
+    DB.jobs = jobs;
+    softRerender();
+  }, ()=>{ document.getElementById('syncLabel').textContent = 'Sync error'; });
+}
+function softRerender(){
+  // Refresh read-only/list views live, without disturbing screens where the person may be mid-typing or scanning.
+  if(!document.getElementById('app') || document.getElementById('app').style.display === 'none'){
+    if(document.getElementById('login-screen') && !document.getElementById('login-screen').classList.contains('hidden')) renderLoginScreen();
+    return;
+  }
+  const activeBtn = document.querySelector('#mainNav button.active');
+  const name = activeBtn ? activeBtn.dataset.view : '';
+  if(name === 'lifts') renderLifts();
+  else if(name === 'jobs') renderJobs();
+  else if(name === 'dashboard') renderDashboard();
+}
+async function saveDB(job){
+  const jobToSave = job || (currentJobId ? DB.jobs.find(x=>x.jobId===currentJobId) : null);
+  if(FB_READY){
+    try{
+      await fbDb.collection('app').doc('meta').set({
+        lifts: DB.lifts, technicians: DB.technicians, officePin: DB.officePin, counters: DB.counters
+      });
+      if(jobToSave){
+        const jobNoPhotos = Object.assign({}, jobToSave);
+        delete jobNoPhotos.photos;
+        await fbDb.collection('jobs').doc(jobToSave.jobId).set(jobNoPhotos);
+      }
+      document.getElementById('syncLabel').textContent = 'Synced';
+    }catch(e){
+      document.getElementById('syncLabel').textContent = 'Save failed — retry';
+      toast('Could not save. Check connection and try again.');
+    }
+    return;
+  }
+  try{
+    if(window.storage){
+      await window.storage.set('lift-service-db', JSON.stringify(DB), true);
+      document.getElementById('syncLabel').textContent = 'Synced (preview)';
+    } else {
+      document.getElementById('syncLabel').textContent = 'Not connected';
+    }
+  }catch(e){
+    document.getElementById('syncLabel').textContent = 'Save failed — retry';
+    toast('Could not save. Check connection and try again.');
+  }
+}
+async function fetchPhotosForJob(jobId){
+  if(!FB_READY) return;
+  try{
+    const snap = await fbDb.collection('jobs').doc(jobId).collection('photos').get();
+    const photos = snap.docs.map(d=>d.data());
+    const j = DB.jobs.find(x=>x.jobId===jobId);
+    if(j) j.photos = photos;
+  }catch(e){ /* keep whatever is cached locally */ }
+}
+function seedDB(){
+  DB = {
+    lifts: [
+      {id:'EC-LFT-0001', location:'Building A', status:'Active'},
+      {id:'EC-LFT-0002', location:'Building B', status:'Active'},
+      {id:'EC-LFT-0003', location:'Building C', status:'Active'},
+      {id:'EC-LFT-0004', location:'Building D', status:'Active'},
+      {id:'EC-LFT-0005', location:'Building E', status:'Active'}
+    ],
+    jobs: [
+      mkJob({jobId:'JOB-001', liftId:'EC-LFT-0001', date:'2026-09-04', technician:'Ali', status:'Pending', notes:'Routine check', customerName:'Customer A', address:'Address A', callAttendedBy:'Ali', timeIn:'09:00', timeOut:'10:30', type:'AMC'}),
+      mkJob({jobId:'JOB-002', liftId:'EC-LFT-0002', date:'2026-09-04', technician:'Ahmed', status:'Completed', notes:'Brake tested', customerName:'Customer B', address:'Address B', callAttendedBy:'Ahmed', timeIn:'11:00', timeOut:'12:15', type:'Repair'})
+    ],
+    counters:{ lift:5, job:2, report:2 },
+    technicians:[{name:'Ali', pin:''}, {name:'Ahmed', pin:''}],
+    officePin:''
+  };
+}
+function mkJob(overrides){
+  const checklist = {};
+  Object.entries(CHECKLIST_SECTIONS).forEach(([sec, items])=>{ checklist[sec] = items.map(()=>false); });
+  return Object.assign({
+    jobId:'', jobCardNo:'', liftId:'', date:'', technician:'', status:'Pending',
+    customerName:'', customerPhone:'', customerEmail:'', callAttendedBy:'', address:'', timeIn:'', timeOut:'',
+    type:'Repair', arrivalStatus:'', breakdownReason:'', rectification:'',
+    notes:'', charge:'', paymentMethod:'Cash',
+    checklist, photos:[], sig:{tech:null, techName:'', cust:null, custName:''}
+  }, overrides);
+}
+
+/* ---------- login ---------- */
+let CURRENT_USER = null;
+let pendingIdentity = null;
+function identityList(){
+  const techs = (DB.technicians||[]).map(t=>({name:t.name, role:'tech', pin:t.pin||''}));
+  return [...techs, {name:'Back Office', role:'office', pin:DB.officePin||''}];
+}
+function renderLoginScreen(){
+  const list = identityList();
+  const el = document.getElementById('login-screen');
+  el.innerHTML = `
+    <div class="login-wrap">
+      <div class="login-card">
+        <div class="brand-mark">EC</div>
+        <h1>Emirates Contracting</h1>
+        <div class="sub">Select your name to continue</div>
+        <div class="login-list">
+          ${list.map((p,i)=>`<div class="login-item ${p.role==='office'?'office':''}" onclick="pickIdentity(${i})"><span>${esc(p.name)}</span>${p.role==='office' ? '<span class="tag">OFFICE</span>' : ''}</div>`).join('')}
+        </div>
+        <div class="login-add" onclick="addTechnicianPrompt()">+ New technician (first time)</div>
+        <div id="loginPinBox" class="login-pin-box hidden">
+          <label>Enter PIN for <span id="loginPinName"></span></label>
+          <input id="loginPin" type="text" inputmode="numeric" maxlength="6" placeholder="PIN">
+          <div id="loginPinErr" class="field-err" style="display:none;"></div>
+          <div style="margin-top:10px;display:flex;gap:8px;">
+            <button class="btn secondary" style="flex:1;" onclick="cancelPin()">Back</button>
+            <button class="btn" style="flex:1;" onclick="confirmPin()">Continue</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+function pickIdentity(i){
+  const p = identityList()[i];
+  if(!p.pin){ completeLogin(p.name, p.role); return; }
+  pendingIdentity = p;
+  document.getElementById('loginPinName').textContent = p.name;
+  document.getElementById('loginPinBox').classList.remove('hidden');
+  document.getElementById('loginPin').value = '';
+  document.getElementById('loginPinErr').style.display = 'none';
+  document.getElementById('loginPin').focus();
+}
+function cancelPin(){
+  pendingIdentity = null;
+  document.getElementById('loginPinBox').classList.add('hidden');
+}
+function confirmPin(){
+  const val = document.getElementById('loginPin').value.trim();
+  if(!pendingIdentity) return;
+  if(val !== pendingIdentity.pin){
+    const e = document.getElementById('loginPinErr');
+    e.textContent = 'Incorrect PIN. Try again.';
+    e.style.display = 'block';
+    return;
+  }
+  completeLogin(pendingIdentity.name, pendingIdentity.role);
+}
+function addTechnicianPrompt(){
+  const name = prompt('Enter your full name:');
+  if(!name || !name.trim()) return;
+  const clean = name.trim();
+  DB.technicians = DB.technicians || [];
+  if(!DB.technicians.some(t=>t.name.toLowerCase()===clean.toLowerCase())){
+    DB.technicians.push({name:clean, pin:''});
+    saveDB();
+  }
+  completeLogin(clean, 'tech');
+}
+async function rememberUser(user){
+  try{
+    if(window.storage){ await window.storage.set('ec-current-user', JSON.stringify(user), false); return; }
+  }catch(e){}
+  try{ localStorage.setItem('ec-current-user', JSON.stringify(user)); }catch(e){}
+}
+async function getRememberedUser(){
+  try{
+    if(window.storage){
+      const res = await window.storage.get('ec-current-user', false);
+      return res && res.value ? JSON.parse(res.value) : null;
+    }
+  }catch(e){}
+  try{
+    const raw = localStorage.getItem('ec-current-user');
+    return raw ? JSON.parse(raw) : null;
+  }catch(e){ return null; }
+}
+async function forgetUser(){
+  try{ if(window.storage){ await window.storage.delete('ec-current-user', false); return; } }catch(e){}
+  try{ localStorage.removeItem('ec-current-user'); }catch(e){}
+}
+async function completeLogin(name, role){
+  CURRENT_USER = {name, role};
+  TECH_NAME = name;
+  await rememberUser(CURRENT_USER);
+  document.getElementById('login-screen').classList.add('hidden');
+  document.getElementById('app').style.display = '';
+  const pill = document.getElementById('userPill');
+  pill.classList.remove('hidden');
+  document.getElementById('userPillLabel').textContent = name + (role==='office' ? ' · Office' : '');
+  if(!FB_READY) document.getElementById('noCloudBanner').classList.remove('hidden');
+  setRole(role);
+}
+async function switchUser(){
+  CURRENT_USER = null;
+  stopScanner();
+  await forgetUser();
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('login-screen').classList.remove('hidden');
+  renderLoginScreen();
+}
+
+/* ---------- role & nav ---------- */
+let ROLE = 'tech';
+function setRole(role){
+  ROLE = role;
+  document.getElementById('role-tech').classList.toggle('on', role==='tech');
+  document.getElementById('role-office').classList.toggle('on', role==='office');
+  document.querySelectorAll('#mainNav button').forEach(b=>{
+    const v = b.dataset.view;
+    const techOnly = (v==='scan' || v==='newjob');
+    const officeOnly = (v==='dashboard');
+    b.classList.toggle('hidden', role==='tech' ? officeOnly : techOnly);
+  });
+  switchView(role==='tech' ? 'scan' : 'dashboard');
+}
+document.querySelectorAll('.nav button').forEach(b=>{
+  b.addEventListener('click', ()=> switchView(b.dataset.view));
+});
+function switchView(name){
+  stopScanner();
+  document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active', b.dataset.view===name));
+  ['scan','lifts','jobs','newjob','jobdetail','dashboard'].forEach(v=>{
+    document.getElementById('view-'+v).classList.toggle('hidden', v!==name);
+  });
+  if(name==='scan') renderScan();
+  if(name==='lifts') renderLifts();
+  if(name==='jobs') renderJobs();
+  if(name==='newjob') renderNewJob();
+  if(name==='dashboard') renderDashboard();
+}
+
+/* ---------- LIFTS view ---------- */
+function renderLifts(){
+  const el = document.getElementById('view-lifts');
+  const rows = DB.lifts.map(l=>{
+    const jobs = DB.jobs.filter(j=>j.liftId===l.id);
+    const open = jobs.filter(j=>j.status!=='Completed').length;
+    return `<div class="row-card">
+      <div class="row-top" onclick="filterJobsByLift('${esc(l.id)}')" style="cursor:pointer;">
+        <div><div class="row-title">${esc(l.id)}</div><div class="row-id">${esc(l.location)}</div></div>
+        <span class="badge ${l.status.toLowerCase()}">${esc(l.status)}</span>
+      </div>
+      <div class="row-meta" onclick="filterJobsByLift('${esc(l.id)}')" style="cursor:pointer;">${jobs.length} job${jobs.length===1?'':'s'} on record${open?` · ${open} open`:''}</div>
+      <div style="margin-top:10px;"><button class="btn secondary" onclick="event.stopPropagation();viewLiftQR('${esc(l.id)}')">View / print QR code</button></div>
+    </div>`;
+  }).join('');
+  el.innerHTML = `
+    <div class="section-head"><h1>Lifts</h1><span class="count">${DB.lifts.length} registered</span></div>
+    <div class="panel" style="margin-bottom:16px;">
+      <h2>Add a lift</h2>
+      <div class="grid-2">
+        <div><label>Lift ID</label><input id="newLiftId" type="text" placeholder="EC-LFT-0006"></div>
+        <div><label>Location</label><input id="newLiftLoc" type="text" placeholder="Building F"></div>
+      </div>
+      <div id="liftErr" class="field-err" style="display:none;"></div>
+      <div style="margin-top:14px;"><button class="btn" onclick="addLift()">Add lift</button></div>
+    </div>
+    ${rows || '<div class="empty"><div class="big">No lifts yet</div>Add your first lift above.</div>'}
+  `;
+}
+function addLift(){
+  const idEl = document.getElementById('newLiftId');
+  const locEl = document.getElementById('newLiftLoc');
+  const errEl = document.getElementById('liftErr');
+  const id = idEl.value.trim(); const loc = locEl.value.trim();
+  if(!id || !loc){ errEl.textContent = 'Enter both a lift ID and a location.'; errEl.style.display='block'; return; }
+  if(DB.lifts.some(l=>l.id.toLowerCase()===id.toLowerCase())){ errEl.textContent = 'That lift ID already exists.'; errEl.style.display='block'; return; }
+  errEl.style.display='none';
+  DB.lifts.push({id, location:loc, status:'Active'});
+  saveDB(); renderLifts(); toast('Lift added');
+}
+function filterJobsByLift(liftId){
+  window._jobFilter = liftId;
+  switchView('jobs');
+}
+function viewLiftQR(liftId){
+  const root = document.getElementById('modal-root');
+  root.classList.remove('hidden');
+  root.innerHTML = `
+    <div class="modal-backdrop" onclick="if(event.target===this) closeModal()">
+      <div class="modal-card">
+        <h3>${esc(liftId)}</h3>
+        <div class="sub">Stick this at the lift. Scanning opens this lift directly.</div>
+        <div class="qr-box" id="qrTarget"></div>
+        <div class="actions">
+          <button class="btn secondary" onclick="closeModal()">Close</button>
+          <button class="btn" onclick="printQR('${esc(liftId)}')">Print</button>
+        </div>
+      </div>
+    </div>`;
+  new QRCode(document.getElementById('qrTarget'), { text: 'ECLIFT:'+liftId, width:180, height:180, colorDark:'#1C2530', colorLight:'#ffffff' });
+}
+function closeModal(){
+  document.getElementById('modal-root').classList.add('hidden');
+  document.getElementById('modal-root').innerHTML = '';
+}
+function printQR(liftId){
+  const img = document.querySelector('#qrTarget img, #qrTarget canvas');
+  const src = img.tagName==='CANVAS' ? img.toDataURL() : img.src;
+  const w = window.open('', '_blank');
+  w.document.write(`<html><body style="text-align:center;font-family:sans-serif;padding:40px;"><h2>${esc(liftId)}</h2><img src="${src}" style="width:220px;"><p>Emirates Contracting — scan to open lift</p></body></html>`);
+  w.document.close(); w.print();
+}
+
+/* ---------- SCAN view ---------- */
+let TECH_NAME = '';
+let scanStream = null, scanRAF = null;
+function renderScan(){
+  const el = document.getElementById('view-scan');
+  el.innerHTML = `
+    <div class="section-head"><h1>Scan lift QR</h1></div>
+    <div class="panel">
+      <label>Your name</label>
+      <input id="scanTechName" type="text" placeholder="Technician name" value="${esc(TECH_NAME)}">
+      <div style="margin-top:14px;">
+        <div class="scan-wrap" id="scanWrapBox" style="display:none;">
+          <video id="scanVideo" playsinline muted></video>
+          <div class="scan-frame"></div>
+        </div>
+        <div id="scanStartBox">
+          <button class="btn full" onclick="startScanner()">Open camera</button>
+        </div>
+        <div id="scanStatus" class="scan-status"></div>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Or pick a lift manually</h2>
+      <select id="manualLiftPick">
+        <option value="">Select a lift</option>
+        ${DB.lifts.map(l=>`<option value="${esc(l.id)}">${esc(l.id)} — ${esc(l.location)}</option>`).join('')}
+      </select>
+      <div style="margin-top:10px;"><button class="btn secondary full" onclick="manualPickGo()">Open this lift</button></div>
+    </div>
+  `;
+}
+async function startScanner(){
+  TECH_NAME = document.getElementById('scanTechName').value.trim();
+  const status = document.getElementById('scanStatus');
+  document.getElementById('scanWrapBox').style.display = 'block';
+  document.getElementById('scanStartBox').style.display = 'none';
+  try{
+    scanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+  }catch(e){
+    status.innerHTML = `<div class="field-err">Could not access the camera. Check permissions, or use "pick a lift manually" below.</div>`;
+    document.getElementById('scanWrapBox').style.display = 'none';
+    document.getElementById('scanStartBox').style.display = 'block';
+    return;
+  }
+  const video = document.getElementById('scanVideo');
+  video.srcObject = scanStream;
+  video.setAttribute('playsinline', true);
+  await video.play();
+  status.textContent = 'Point the camera at the lift QR code.';
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  function tick(){
+    if(!scanStream) return;
+    if(video.readyState === video.HAVE_ENOUGH_DATA){
+      canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const imgData = ctx.getImageData(0,0,canvas.width,canvas.height);
+      const code = jsQR(imgData.data, imgData.width, imgData.height);
+      if(code && code.data && code.data.startsWith('ECLIFT:')){
+        const liftId = code.data.slice(7);
+        handleScanHit(liftId);
+        return;
+      }
+    }
+    scanRAF = requestAnimationFrame(tick);
+  }
+  scanRAF = requestAnimationFrame(tick);
+}
+function stopScanner(){
+  if(scanRAF) cancelAnimationFrame(scanRAF);
+  scanRAF = null;
+  if(scanStream){ scanStream.getTracks().forEach(t=>t.stop()); scanStream = null; }
+}
+function handleScanHit(liftId){
+  stopScanner();
+  const status = document.getElementById('scanStatus');
+  const lift = DB.lifts.find(l=>l.id===liftId);
+  if(!lift){
+    if(status) status.innerHTML = `<div class="field-err">Scanned code "${esc(liftId)}" does not match a known lift.</div>`;
+    return;
+  }
+  if(status) status.innerHTML = `<div class="scan-hit">Matched ${esc(liftId)} — opening job…</div>`;
+  setTimeout(()=> goToLiftJob(liftId), 400);
+}
+function manualPickGo(){
+  const liftId = document.getElementById('manualLiftPick').value;
+  if(!liftId){ toast('Select a lift first'); return; }
+  goToLiftJob(liftId);
+}
+function goToLiftJob(liftId){
+  const existing = DB.jobs.find(j=>j.liftId===liftId && j.status!=='Completed');
+  if(existing){ existing.technician = existing.technician || TECH_NAME; saveDB(existing); openJob(existing.jobId); return; }
+  DB.counters.job += 1;
+  const jobId = 'JOB-' + String(DB.counters.job).padStart(3,'0');
+  const jobCardNo = 'JC-' + String(DB.counters.job).padStart(3,'0');
+  const job = mkJob({ jobId, jobCardNo, liftId, date: new Date().toISOString().slice(0,10), technician: TECH_NAME, status:'Pending', timeIn: new Date().toTimeString().slice(0,5) });
+  DB.jobs.push(job);
+  saveDB(job);
+  toast('Job ' + jobId + ' started at ' + liftId);
+  openJob(jobId);
+}
+
+/* ---------- JOBS view ---------- */
+function renderJobs(){
+  const el = document.getElementById('view-jobs');
+  const filter = window._jobFilter || '';
+  const list = filter ? DB.jobs.filter(j=>j.liftId===filter) : DB.jobs;
+  const sorted = [...list].sort((a,b)=> (b.date||'').localeCompare(a.date||''));
+  const rows = sorted.map(j=>`
+    <div class="row-card" onclick="openJob('${esc(j.jobId)}')">
+      <div class="row-top">
+        <div><div class="row-title">${esc(j.jobId)} — ${esc(j.liftId)}</div><div class="row-id">${esc(j.customerName||'No customer name')}</div></div>
+        <span class="badge ${j.status.toLowerCase()}">${esc(j.status)}</span>
+      </div>
+      <div class="row-meta">${fmtDate(j.date)} · ${esc(j.technician||'Unassigned')} · ${esc(j.type)}</div>
+    </div>`).join('');
+  el.innerHTML = `
+    <div class="section-head">
+      <h1>Jobs${filter?` — ${esc(filter)}`:''}</h1>
+      <span class="count">${list.length} job${list.length===1?'':'s'} ${filter?'<a href="#" onclick="clearJobFilter(event)" style="margin-left:8px;color:var(--steel);">clear filter</a>':''}</span>
+    </div>
+    ${rows || '<div class="empty"><div class="big">No jobs yet</div>Create one from the New job tab.</div>'}
+  `;
+}
+function clearJobFilter(e){ e.preventDefault(); window._jobFilter=null; renderJobs(); }
+
+/* ---------- NEW JOB view ---------- */
+function renderNewJob(){
+  const el = document.getElementById('view-newjob');
+  const liftOpts = DB.lifts.map(l=>`<option value="${esc(l.id)}">${esc(l.id)} — ${esc(l.location)}</option>`).join('');
+  el.innerHTML = `
+    <div class="section-head"><h1>New job</h1></div>
+    <div class="panel">
+      <div class="grid-2">
+        <div><label>Lift</label><select id="nj-lift"><option value="">Select a lift</option>${liftOpts}</select></div>
+        <div><label>Date</label><input id="nj-date" type="date" value="${new Date().toISOString().slice(0,10)}"></div>
+      </div>
+      <div class="grid-2">
+        <div><label>Technician</label><input id="nj-tech" type="text" placeholder="Name" value="${esc(TECH_NAME)}"></div>
+        <div><label>Call attended by</label><input id="nj-attend" type="text" placeholder="Name"></div>
+      </div>
+      <div class="grid-2">
+        <div><label>Customer name</label><input id="nj-cust" type="text" placeholder="Customer name"></div>
+        <div><label>Address</label><input id="nj-addr" type="text" placeholder="Site address"></div>
+      </div>
+      <div class="grid-2">
+        <div><label>Time in</label><input id="nj-timein" type="time"></div>
+        <div><label>Time out</label><input id="nj-timeout" type="time"></div>
+      </div>
+      <label>Job type</label>
+      <div class="chip-row" id="nj-type-row">
+        ${['Breakdown','Repair','AMC','Module'].map((t,i)=>`<div class="chip ${i===1?'on':''}" data-type="${t}" onclick="pickType(this)">${t}</div>`).join('')}
+      </div>
+      <label>Notes</label>
+      <textarea id="nj-notes" placeholder="Routine check, reported fault, etc."></textarea>
+      <div id="nj-err" class="field-err" style="display:none;"></div>
+      <div style="margin-top:16px;"><button class="btn" onclick="createJob()">Create job</button></div>
+    </div>
+  `;
+}
+function pickType(chip){
+  document.querySelectorAll('#nj-type-row .chip').forEach(c=>c.classList.remove('on'));
+  chip.classList.add('on');
+}
+function createJob(){
+  const liftId = document.getElementById('nj-lift').value;
+  const date = document.getElementById('nj-date').value;
+  const tech = document.getElementById('nj-tech').value.trim();
+  const errEl = document.getElementById('nj-err');
+  if(!liftId || !date || !tech){
+    errEl.textContent = 'Select a lift, a date, and enter a technician.';
+    errEl.style.display='block';
+    return;
+  }
+  errEl.style.display='none';
+  DB.counters.job += 1;
+  const jobId = 'JOB-' + String(DB.counters.job).padStart(3,'0');
+  const jobCardNo = 'JC-' + String(DB.counters.job).padStart(3,'0');
+  const type = document.querySelector('#nj-type-row .chip.on')?.dataset.type || 'Repair';
+  const job = mkJob({
+    jobId, jobCardNo, liftId, date, technician:tech,
+    callAttendedBy: document.getElementById('nj-attend').value.trim(),
+    customerName: document.getElementById('nj-cust').value.trim(),
+    address: document.getElementById('nj-addr').value.trim(),
+    timeIn: document.getElementById('nj-timein').value,
+    timeOut: document.getElementById('nj-timeout').value,
+    type, notes: document.getElementById('nj-notes').value.trim(),
+    status:'Pending'
+  });
+  DB.jobs.push(job);
+  saveDB(job);
+  toast('Job ' + jobId + ' created');
+  openJob(jobId);
+}
+
+/* ---------- JOB DETAIL view ---------- */
+function openJob(jobId){
+  currentJobId = jobId;
+  currentDetailTab = 'checklist';
+  switchView('jobdetail');
+  renderJobDetail();
+}
+function getJob(){ return DB.jobs.find(j=>j.jobId===currentJobId); }
+
+function renderJobDetail(){
+  const j = getJob();
+  const el = document.getElementById('view-jobdetail');
+  if(!j){ el.innerHTML = '<div class="empty">Job not found.</div>'; return; }
+  el.innerHTML = `
+    <div class="section-head">
+      <h1>${esc(j.jobId)} <span style="color:var(--ink-soft);font-weight:400;">— ${esc(j.liftId)}</span></h1>
+      <span class="badge ${j.status.toLowerCase()}">${esc(j.status)}</span>
+    </div>
+    <div class="subnav">
+      <button data-tab="details" onclick="setDetailTab('details')">Details</button>
+      <button data-tab="checklist" onclick="setDetailTab('checklist')">Checklist</button>
+      <button data-tab="photos" onclick="setDetailTab('photos')">Photos</button>
+      <button data-tab="signatures" onclick="setDetailTab('signatures')">Signatures</button>
+      <button data-tab="report" onclick="setDetailTab('report')">Report</button>
+    </div>
+    <div id="detail-body"></div>
+  `;
+  document.querySelectorAll('.subnav button').forEach(b=>b.classList.toggle('active', b.dataset.tab===currentDetailTab));
+  renderDetailTab();
+}
+function setDetailTab(tab){ currentDetailTab = tab; document.querySelectorAll('.subnav button').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab)); renderDetailTab(); }
+
+function renderDetailTab(){
+  const j = getJob();
+  const body = document.getElementById('detail-body');
+  if(currentDetailTab==='details') return renderDetailsTab(j, body);
+  if(currentDetailTab==='checklist') return renderChecklistTab(j, body);
+  if(currentDetailTab==='photos'){
+    if(FB_READY){
+      body.innerHTML = '<div class="empty">Loading photos…</div>';
+      fetchPhotosForJob(j.jobId).then(()=> renderPhotosTab(getJob(), body));
+      return;
+    }
+    return renderPhotosTab(j, body);
+  }
+  if(currentDetailTab==='signatures') return renderSignaturesTab(j, body);
+  if(currentDetailTab==='report'){
+    if(FB_READY){
+      body.innerHTML = '<div class="empty">Loading…</div>';
+      fetchPhotosForJob(j.jobId).then(()=> renderReportTab(getJob(), body));
+      return;
+    }
+    return renderReportTab(j, body);
+  }
+}
+
+/* -- details tab -- */
+function renderDetailsTab(j, body){
+  body.innerHTML = `
+    <div class="panel">
+      <div class="grid-2">
+        <div><label>Customer name</label><input id="d-cust" type="text" value="${esc(j.customerName)}"></div>
+        <div><label>Call attended by</label><input id="d-attend" type="text" value="${esc(j.callAttendedBy)}"></div>
+      </div>
+      <div class="grid-2">
+        <div><label>Customer WhatsApp / phone</label><input id="d-custphone" type="text" value="${esc(j.customerPhone)}" placeholder="+973 XXXX XXXX"></div>
+        <div><label>Customer email</label><input id="d-custemail" type="text" value="${esc(j.customerEmail)}" placeholder="name@company.com"></div>
+      </div>
+      <div class="grid-2">
+        <div><label>Address</label><input id="d-addr" type="text" value="${esc(j.address)}"></div>
+        <div><label>Technician</label><input id="d-tech" type="text" value="${esc(j.technician)}"></div>
+      </div>
+      <div class="grid-3">
+        <div><label>Date</label><input id="d-date" type="date" value="${esc(j.date)}"></div>
+        <div><label>Time in</label><input id="d-timein" type="time" value="${esc(j.timeIn)}"></div>
+        <div><label>Time out</label><input id="d-timeout" type="time" value="${esc(j.timeOut)}"></div>
+      </div>
+      <label>Job type</label>
+      <div class="chip-row" id="d-type-row">
+        ${['Breakdown','Repair','AMC','Module'].map(t=>`<div class="chip ${j.type===t?'on':''}" data-type="${t}" onclick="pickType(this)">${t}</div>`).join('')}
+      </div>
+      <label>Status</label>
+      <select id="d-status">
+        ${['Pending','In progress','Completed'].map(s=>`<option ${j.status===s?'selected':''}>${s}</option>`).join('')}
+      </select>
+      <label>Status of lift on arrival</label>
+      <select id="d-arrival">
+        <option value="">Not recorded</option>
+        ${['Stopped on level','Stopped out of level','Working with problem','Working without problem'].map(s=>`<option ${j.arrivalStatus===s?'selected':''}>${s}</option>`).join('')}
+      </select>
+      <label>Reason for fault / observations</label>
+      <textarea id="d-reason">${esc(j.breakdownReason)}</textarea>
+      <label>Rectification &amp; remarks</label>
+      <textarea id="d-rect">${esc(j.rectification)}</textarea>
+      <div class="grid-2">
+        <div><label>Total charge (BD)</label><input id="d-charge" type="text" value="${esc(j.charge)}" placeholder="0.000"></div>
+        <div><label>Payment method</label><select id="d-pay">${['Cash','Cheque','Not applicable'].map(p=>`<option ${j.paymentMethod===p?'selected':''}>${p}</option>`).join('')}</select></div>
+      </div>
+      <label>General notes</label>
+      <textarea id="d-notes">${esc(j.notes)}</textarea>
+      <div style="margin-top:16px;"><button class="btn" onclick="saveDetails()">Save details</button></div>
+    </div>
+  `;
+}
+function saveDetails(){
+  const j = getJob();
+  j.customerName = document.getElementById('d-cust').value.trim();
+  j.customerPhone = document.getElementById('d-custphone').value.trim();
+  j.customerEmail = document.getElementById('d-custemail').value.trim();
+  j.callAttendedBy = document.getElementById('d-attend').value.trim();
+  j.address = document.getElementById('d-addr').value.trim();
+  j.technician = document.getElementById('d-tech').value.trim();
+  j.date = document.getElementById('d-date').value;
+  j.timeIn = document.getElementById('d-timein').value;
+  j.timeOut = document.getElementById('d-timeout').value;
+  j.type = document.querySelector('#d-type-row .chip.on')?.dataset.type || j.type;
+  j.status = document.getElementById('d-status').value;
+  j.arrivalStatus = document.getElementById('d-arrival').value;
+  j.breakdownReason = document.getElementById('d-reason').value.trim();
+  j.rectification = document.getElementById('d-rect').value.trim();
+  j.charge = document.getElementById('d-charge').value.trim();
+  j.paymentMethod = document.getElementById('d-pay').value;
+  j.notes = document.getElementById('d-notes').value.trim();
+  saveDB();
+  toast('Details saved');
+  renderJobDetail();
+}
+
+/* -- checklist tab -- */
+function renderChecklistTab(j, body){
+  let total=0, done=0;
+  Object.values(j.checklist).forEach(arr=>{ total+=arr.length; done+=arr.filter(Boolean).length; });
+  const cols = Object.entries(CHECKLIST_SECTIONS).map(([sec, items])=>{
+    const rows = items.map((label, idx)=>`
+      <label class="check-item" style="cursor:pointer;">
+        <input type="checkbox" ${j.checklist[sec][idx]?'checked':''} onchange="toggleCheck('${esc(sec)}',${idx},this.checked)">
+        ${esc(label)}
+      </label>`).join('');
+    return `<div class="check-col"><h3>${esc(sec)}</h3>${rows}</div>`;
+  }).join('');
+  body.innerHTML = `
+    <div class="panel">
+      <div class="check-progress">${done} / ${total} items checked</div>
+      <div class="check-cols">${cols}</div>
+    </div>
+  `;
+}
+function toggleCheck(sec, idx, val){
+  const j = getJob();
+  j.checklist[sec][idx] = val;
+  saveDB();
+  const [d,t] = (()=>{ let total=0, done=0; Object.values(j.checklist).forEach(arr=>{ total+=arr.length; done+=arr.filter(Boolean).length; }); return [done,total]; })();
+  document.querySelector('.check-progress').textContent = `${d} / ${t} items checked`;
+}
+
+/* -- photos tab -- */
+function renderPhotosTab(j, body){
+  const tiles = j.photos.map((p,idx)=>`
+    <div class="photo-tile">
+      <img src="${p.data}" alt="${esc(p.caption||'Job photo')}">
+      <div class="cap">${esc(p.caption||'Untitled')}</div>
+      <button class="rm" onclick="removePhoto(${idx})" aria-label="Remove photo">×</button>
+    </div>`).join('');
+  body.innerHTML = `
+    <div class="panel">
+      <h2>Photos &amp; parts</h2>
+      <div class="desc">Attach site or part photos. Stored with this job.</div>
+      <div class="upload-box" onclick="document.getElementById('photoInput').click()">Tap to add a photo</div>
+      <input type="file" id="photoInput" accept="image/*" style="display:none;" onchange="handlePhotoUpload(event)">
+      <div id="photoErr" class="field-err" style="display:none;"></div>
+      <div class="photo-grid">${tiles}</div>
+    </div>
+  `;
+}
+function handlePhotoUpload(e){
+  const file = e.target.files[0];
+  if(!file) return;
+  const errEl = document.getElementById('photoErr');
+  if(file.size > 4*1024*1024){ errEl.textContent='Photo is too large (max 4MB). Try a smaller image.'; errEl.style.display='block'; e.target.value=''; return; }
+  errEl.style.display='none';
+  const reader = new FileReader();
+  reader.onload = function(){
+    const img = new Image();
+    img.onload = async function(){
+      const canvas = document.createElement('canvas');
+      const maxW = 900;
+      const scale = Math.min(1, maxW/img.width);
+      canvas.width = img.width*scale; canvas.height = img.height*scale;
+      canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+      const caption = prompt('Caption for this photo (e.g. "Motor cable", "Before repair")') || '';
+      const j = getJob();
+      const photo = {id:'PH-'+Date.now().toString(36)+Math.random().toString(36).slice(2,6), data:dataUrl, caption};
+      if(FB_READY){
+        try{
+          await fbDb.collection('jobs').doc(j.jobId).collection('photos').doc(photo.id).set(photo);
+          j.photos.push(photo);
+        }catch(err){ toast('Could not upload photo. Check connection and try again.'); return; }
+      }else{
+        j.photos.push(photo);
+        saveDB();
+      }
+      renderDetailTab();
+      toast('Photo added');
+    };
+    img.src = reader.result;
+  };
+  reader.readAsDataURL(file);
+  e.target.value = '';
+}
+async function removePhoto(idx){
+  const j = getJob();
+  const photo = j.photos[idx];
+  j.photos.splice(idx,1);
+  if(FB_READY && photo && photo.id){
+    try{ await fbDb.collection('jobs').doc(j.jobId).collection('photos').doc(photo.id).delete(); }catch(e){ toast('Could not remove photo online — try again.'); }
+  }else{
+    saveDB();
+  }
+  renderDetailTab();
+}
+
+/* -- signatures tab -- */
+function renderSignaturesTab(j, body){
+  body.innerHTML = `
+    <div class="panel">
+      <h2>Technician signature</h2>
+      <label>Name</label>
+      <input id="tech-sig-name" type="text" value="${esc(j.sig.techName || TECH_NAME)}" placeholder="Technician name">
+      ${j.sig.tech ? `
+        <div class="sig-saved" style="margin-top:10px;"><img src="${j.sig.tech}" alt="Technician signature"><span>Signature saved</span><button class="btn secondary" style="margin-left:auto;" onclick="clearSavedSig('tech')">Redo</button></div>
+      ` : `
+        <div class="sig-pad-wrap" style="margin-top:10px;">
+          <canvas class="sig-pad" id="pad-tech"></canvas>
+          <div class="sig-actions"><span>Sign above</span><div><button class="btn secondary" style="margin-right:8px;" onclick="clearPad('tech')">Clear</button><button class="btn" onclick="saveSig('tech')">Save signature</button></div></div>
+        </div>
+      `}
+    </div>
+    <div class="panel">
+      <h2>Customer signature</h2>
+      <label>Name</label>
+      <input id="cust-sig-name" type="text" value="${esc(j.sig.custName)}" placeholder="Customer name">
+      ${j.sig.cust ? `
+        <div class="sig-saved" style="margin-top:10px;"><img src="${j.sig.cust}" alt="Customer signature"><span>Signature saved</span><button class="btn secondary" style="margin-left:auto;" onclick="clearSavedSig('cust')">Redo</button></div>
+      ` : `
+        <div class="sig-pad-wrap" style="margin-top:10px;">
+          <canvas class="sig-pad" id="pad-cust"></canvas>
+          <div class="sig-actions"><span>Sign above</span><div><button class="btn secondary" style="margin-right:8px;" onclick="clearPad('cust')">Clear</button><button class="btn" onclick="saveSig('cust')">Save signature</button></div></div>
+        </div>
+      `}
+    </div>
+  `;
+  if(!j.sig.tech) initPad('tech');
+  if(!j.sig.cust) initPad('cust');
+}
+function initPad(which){
+  const canvas = document.getElementById('pad-'+which);
+  if(!canvas) return;
+  const ctx = canvas.getContext('2d');
+  function resize(){
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * 2; canvas.height = rect.height * 2;
+    ctx.scale(2,2); ctx.strokeStyle = '#1A1E23'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+  }
+  resize();
+  let drawing=false, last=null;
+  function pos(e){
+    const rect = canvas.getBoundingClientRect();
+    const t = e.touches ? e.touches[0] : e;
+    return { x: t.clientX-rect.left, y: t.clientY-rect.top };
+  }
+  function start(e){ drawing=true; last=pos(e); e.preventDefault(); }
+  function move(e){ if(!drawing) return; const p=pos(e); ctx.beginPath(); ctx.moveTo(last.x,last.y); ctx.lineTo(p.x,p.y); ctx.stroke(); last=p; e.preventDefault(); }
+  function end(){ drawing=false; }
+  canvas.addEventListener('mousedown', start); canvas.addEventListener('mousemove', move); window.addEventListener('mouseup', end);
+  canvas.addEventListener('touchstart', start); canvas.addEventListener('touchmove', move); canvas.addEventListener('touchend', end);
+  if(which==='tech') sigPadTech = canvas; else sigPadCust = canvas;
+}
+function clearPad(which){
+  const canvas = document.getElementById('pad-'+which);
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+}
+function saveSig(which){
+  const canvas = document.getElementById('pad-'+which);
+  const nameEl = document.getElementById(which+'-sig-name');
+  const j = getJob();
+  const name = nameEl.value.trim();
+  if(!name){ nameEl.style.borderColor='var(--red)'; toast('Enter a name before saving the signature'); return; }
+  const dataUrl = canvas.toDataURL('image/png');
+  if(which==='tech'){ j.sig.tech = dataUrl; j.sig.techName = name; }
+  else { j.sig.cust = dataUrl; j.sig.custName = name; }
+  saveDB();
+  renderDetailTab();
+  toast('Signature saved');
+}
+function clearSavedSig(which){
+  const j = getJob();
+  if(which==='tech') j.sig.tech = null; else j.sig.cust = null;
+  saveDB();
+  renderDetailTab();
+}
+
+/* -- report tab -- */
+function renderReportTab(j, body){
+  let total=0, done=0;
+  Object.values(j.checklist).forEach(arr=>{ total+=arr.length; done+=arr.filter(Boolean).length; });
+  const hasContact = j.customerPhone || j.customerEmail;
+  body.innerHTML = `
+    <div class="panel">
+      <h2>Complete &amp; send report</h2>
+      <div class="desc">Builds a branded PDF from this job's details, checklist, photos, and signatures — matching the Emirates Contracting service report format.</div>
+      <div class="legend">Checklist: ${done}/${total} checked · Photos: ${j.photos.length} attached · Signatures: ${(j.sig.tech?1:0)+(j.sig.cust?1:0)}/2 collected</div>
+      ${!hasContact ? '<div class="field-err" style="margin-bottom:10px;">Add a customer phone or email on the Details tab to enable send options.</div>' : ''}
+      <button class="btn full" onclick="completeAndShare()">Complete job &amp; share report</button>
+      <div class="send-row">
+        <button class="btn secondary" onclick="generatePDF()"><i class="ti ti-download"></i> Download PDF only</button>
+        <button class="btn secondary" ${j.customerPhone?'':'disabled'} onclick="sendWhatsApp()">Message on WhatsApp</button>
+        <button class="btn secondary" ${j.customerEmail?'':'disabled'} onclick="sendEmail()">Open email draft</button>
+      </div>
+      <div id="sendNote" class="scan-status" style="margin-top:10px;"></div>
+    </div>
+    <div class="panel">
+      <h2>To back office</h2>
+      <div class="desc">Every completed job already appears on the Back office Dashboard the moment you complete it here — no separate step needed, since the whole team shares this app's data.</div>
+    </div>
+  `;
+}
+async function completeAndShare(){
+  const j = getJob();
+  const doc = buildPDFDoc(j);
+  j.status = 'Completed';
+  saveDB();
+  const filename = (j.jobId||'service-report') + '.pdf';
+  const note = document.getElementById('sendNote');
+  try{
+    const blob = doc.output('blob');
+    const file = new File([blob], filename, {type:'application/pdf'});
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      await navigator.share({ files:[file], title:'Service report '+j.jobId, text:'Service report for '+(j.customerName||'customer')+' — '+j.liftId });
+      note.innerHTML = '<div class="scan-hit">Job completed and report shared.</div>';
+      renderJobDetail();
+      return;
+    }
+  }catch(e){ /* user cancelled share or unsupported — fall through to download */ }
+  doc.save(filename);
+  note.innerHTML = '<div class="scan-hit">Job completed. PDF downloaded — attach it in WhatsApp or email below.</div>';
+  renderJobDetail();
+}
+function sendWhatsApp(){
+  const j = getJob();
+  const digits = (j.customerPhone||'').replace(/[^0-9]/g,'');
+  if(!digits){ toast('Add a customer phone number first'); return; }
+  const msg = `Hello ${j.customerName||''}, your lift service report for ${j.liftId} (${j.jobId}) is complete. Please find the attached PDF — Emirates Contracting.`;
+  window.open(`https://wa.me/${digits}?text=${encodeURIComponent(msg)}`, '_blank');
+}
+function sendEmail(){
+  const j = getJob();
+  if(!j.customerEmail){ toast('Add a customer email first'); return; }
+  const subject = `Service report — ${j.liftId} — ${j.jobId}`;
+  const bodyText = `Hello ${j.customerName||''},\n\nYour lift service report for ${j.liftId} (job ${j.jobId}, ${fmtDate(j.date)}) is complete. Please find the attached PDF.\n\nEmirates Contracting`;
+  window.location.href = `mailto:${encodeURIComponent(j.customerEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(bodyText)}`;
+}
+
+function generatePDF(){
+  const j = getJob();
+  const doc = buildPDFDoc(j);
+  doc.save((j.jobId||'service-report') + '.pdf');
+  j.status = 'Completed';
+  saveDB();
+  toast('PDF downloaded');
+  renderJobDetail();
+}
+function buildPDFDoc(j){
+  const lift = DB.lifts.find(l=>l.id===j.liftId) || {location:''};
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({unit:'pt', format:'a4'});
+  const pw = doc.internal.pageSize.getWidth();
+  const margin = 40; let y = 44;
+
+  doc.setFont('helvetica','bold'); doc.setFontSize(14);
+  doc.text('EMIRATES CONTRACTING', margin, y);
+  doc.setFont('helvetica','normal'); doc.setFontSize(8);
+  doc.text('P.O. Box 256, Kingdom of Bahrain  ·  Tel: +973 1616 1600  ·  info@ecbah.com', margin, y+13);
+  doc.setFont('helvetica','bold'); doc.setFontSize(9);
+  doc.text('Job Card No: ' + (j.jobCardNo||j.jobId), pw-margin, y, {align:'right'});
+  doc.text('Date: ' + fmtDate(j.date), pw-margin, y+13, {align:'right'});
+  y += 30;
+  doc.setDrawColor(28,37,48); doc.setLineWidth(1); doc.line(margin, y, pw-margin, y);
+  y += 20;
+  doc.setFont('helvetica','bold'); doc.setFontSize(12); doc.text('SERVICE REPORT', margin, y); y += 22;
+
+  function field(label, value, x, width){
+    doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(90,90,90);
+    doc.text(label, x, y);
+    doc.setFont('helvetica','normal'); doc.setFontSize(9.5); doc.setTextColor(20,20,20);
+    doc.text(String(value||'—'), x, y+12, {maxWidth:width});
+  }
+  const colW = (pw-2*margin-20)/2;
+  field('CUSTOMER', j.customerName, margin, colW);
+  field('CALL ATTENDED BY', j.callAttendedBy, margin+colW+20, colW);
+  y += 26;
+  field('LIFT NO', j.liftId, margin, colW);
+  field('LOCATION', lift.location, margin+colW+20, colW);
+  y += 26;
+  field('ADDRESS', j.address, margin, colW*2+20);
+  y += 26;
+  field('TIME IN', j.timeIn||'—', margin, colW/2);
+  field('TIME OUT', j.timeOut||'—', margin+colW/2+10, colW/2);
+  field('TYPE', j.type, margin+colW+20, colW/2);
+  field('STATUS', j.status, margin+colW+20+colW/2+10, colW/2);
+  y += 28;
+  if(j.arrivalStatus){ field('STATUS OF LIFT ON ARRIVAL', j.arrivalStatus, margin, colW*2+20); y += 26; }
+
+  doc.setDrawColor(220,220,220); doc.line(margin, y, pw-margin, y); y += 18;
+
+  doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(28,37,48);
+  doc.text('MAINTENANCE CHECKLIST', margin, y); y += 14;
+  const sections = Object.entries(CHECKLIST_SECTIONS);
+  const secColW = (pw-2*margin-20)/3;
+  let sectionStartY = y;
+  let maxYUsed = y;
+  sections.forEach(([sec, items], si)=>{
+    let sy = sectionStartY;
+    const sx = margin + si*(secColW+10);
+    doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(74,122,150);
+    doc.text(sec.toUpperCase(), sx, sy); sy += 10;
+    doc.setFont('helvetica','normal'); doc.setFontSize(7.3); doc.setTextColor(30,30,30);
+    items.forEach((label, idx)=>{
+      const checked = j.checklist[sec][idx];
+      doc.text((checked?'[x] ':'[ ] ') + label, sx, sy, {maxWidth: secColW});
+      sy += 9.3;
+    });
+    maxYUsed = Math.max(maxYUsed, sy);
+  });
+  y = maxYUsed + 12;
+
+  if(y > 640){ doc.addPage(); y = 44; }
+  doc.setDrawColor(220,220,220); doc.line(margin, y, pw-margin, y); y += 16;
+
+  function block(title, text){
+    doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(28,37,48);
+    doc.text(title, margin, y); y += 12;
+    doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(30,30,30);
+    const lines = doc.splitTextToSize(text || 'None recorded.', pw-2*margin);
+    doc.text(lines, margin, y); y += lines.length*11 + 12;
+  }
+  block('REASON FOR FAULT', j.breakdownReason);
+  block('RECTIFICATION & REMARKS', j.rectification);
+  if(j.notes) block('GENERAL NOTES', j.notes);
+
+  doc.setFont('helvetica','normal'); doc.setFontSize(9);
+  doc.text('Total charge (BD): ' + (j.charge || '—') + '     Payment method: ' + j.paymentMethod, margin, y);
+  y += 20;
+
+  if(j.photos.length){
+    if(y > 560){ doc.addPage(); y = 44; }
+    doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(28,37,48);
+    doc.text('PHOTOS', margin, y); y += 10;
+    const pw_img = 110, ph_img = 82, gap = 10;
+    let x = margin;
+    j.photos.forEach((p, idx)=>{
+      if(x + pw_img > pw-margin){ x = margin; y += ph_img + 18; }
+      if(y + ph_img > 760){ doc.addPage(); y = 44; x = margin; }
+      try{ doc.addImage(p.data, 'JPEG', x, y, pw_img, ph_img); }catch(e){}
+      doc.setFontSize(6.5); doc.setTextColor(90,90,90);
+      doc.text((p.caption||'').slice(0,28), x, y+ph_img+9);
+      x += pw_img + gap;
+    });
+    y += ph_img + 24;
+  }
+
+  if(y > 660){ doc.addPage(); y = 44; }
+  doc.setDrawColor(220,220,220); doc.line(margin, y, pw-margin, y); y += 20;
+  const sigW = (pw-2*margin-20)/2;
+  doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(28,37,48);
+  doc.text('CUSTOMER ACKNOWLEDGMENT', margin, y);
+  doc.text('FOR EMIRATES CONTRACTING', margin+sigW+20, y);
+  y += 8;
+  if(j.sig.cust){ try{ doc.addImage(j.sig.cust, 'PNG', margin, y+4, sigW*0.7, 40); }catch(e){} }
+  if(j.sig.tech){ try{ doc.addImage(j.sig.tech, 'PNG', margin+sigW+20, y+4, sigW*0.7, 40); }catch(e){} }
+  y += 50;
+  doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(60,60,60);
+  doc.text('Name: ' + (j.sig.custName||'—'), margin, y);
+  doc.text('Name: ' + (j.sig.techName||j.technician||'—'), margin+sigW+20, y);
+
+  return doc;
+}
+
+/* ---------- BACK OFFICE DASHBOARD ---------- */
+function renderDashboard(){
+  const el = document.getElementById('view-dashboard');
+  const jobs = DB.jobs;
+  const completed = jobs.filter(j=>j.status==='Completed');
+  const pending = jobs.filter(j=>j.status==='Pending');
+  const inprog = jobs.filter(j=>j.status==='In progress');
+  const now = new Date();
+  const thisMonth = jobs.filter(j=>{ const d=new Date(j.date); return d.getFullYear()===now.getFullYear() && d.getMonth()===now.getMonth(); });
+
+  el.innerHTML = `
+    <div class="section-head"><h1>Back office dashboard</h1><span class="count">All lifts, all technicians</span></div>
+    <div class="stat-grid">
+      <div class="stat-card"><div class="num">${DB.lifts.length}</div><div class="lbl">Lifts registered</div></div>
+      <div class="stat-card"><div class="num">${jobs.length}</div><div class="lbl">Total jobs</div></div>
+      <div class="stat-card"><div class="num">${pending.length+inprog.length}</div><div class="lbl">Open jobs</div></div>
+      <div class="stat-card"><div class="num">${completed.length}</div><div class="lbl">Completed</div></div>
+      <div class="stat-card"><div class="num">${thisMonth.length}</div><div class="lbl">Jobs this month</div></div>
+    </div>
+    <div class="search-row">
+      <input id="dashSearch" type="text" placeholder="Search by lift, customer, technician, job ID" oninput="renderDashboardList()">
+      <select id="dashStatus" onchange="renderDashboardList()">
+        <option value="">All statuses</option>
+        <option>Pending</option>
+        <option>In progress</option>
+        <option>Completed</option>
+      </select>
+    </div>
+    <div id="dashList"></div>
+
+    <div class="panel" style="margin-top:18px;">
+      <h2>Team &amp; login PINs</h2>
+      <div class="desc">Names here appear on the login screen. PIN is optional — it's a courtesy check, not real security, since this app has no server. Leave blank for no PIN.</div>
+      <div id="teamList"></div>
+      <div style="display:flex;gap:8px;margin-top:10px;">
+        <input id="newTechName" type="text" placeholder="New technician name" style="flex:2;">
+        <button class="btn secondary" onclick="addTeamMember()">Add</button>
+      </div>
+      <div style="margin-top:12px;font-size:12px;color:var(--ink-soft);">
+        Back office login PIN: <a href="#" onclick="setOfficePin();return false;" style="color:var(--steel);">${DB.officePin ? 'Change' : 'Set'}</a>
+      </div>
+    </div>
+  `;
+  renderDashboardList();
+  renderTeamList();
+}
+function renderTeamList(){
+  const el = document.getElementById('teamList');
+  if(!el) return;
+  const rows = (DB.technicians||[]).map((t,i)=>`
+    <div class="row-card" style="padding:10px 12px;margin-bottom:6px;">
+      <div class="row-top">
+        <div class="row-title" style="font-size:13px;">${esc(t.name)}${t.pin ? ' <span class="row-id" style="display:inline;">· PIN set</span>' : ''}</div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn secondary" style="padding:4px 10px;font-size:11px;" onclick="setTechPin(${i})">${t.pin ? 'Change PIN' : 'Set PIN'}</button>
+          <button class="btn danger" style="padding:4px 10px;font-size:11px;" onclick="removeTech(${i})">Remove</button>
+        </div>
+      </div>
+    </div>`).join('');
+  el.innerHTML = rows || '<div class="empty">No technicians added yet.</div>';
+}
+function addTeamMember(){
+  const inp = document.getElementById('newTechName');
+  const name = inp.value.trim();
+  if(!name) return;
+  DB.technicians = DB.technicians || [];
+  if(DB.technicians.some(t=>t.name.toLowerCase()===name.toLowerCase())){ toast('Already in the list'); return; }
+  DB.technicians.push({name, pin:''});
+  saveDB();
+  inp.value = '';
+  renderTeamList();
+  toast('Added ' + name);
+}
+function setTechPin(i){
+  const t = DB.technicians[i];
+  const pin = prompt('Set a PIN for ' + t.name + ' (leave blank to remove PIN):', t.pin||'');
+  if(pin===null) return;
+  t.pin = pin.trim();
+  saveDB();
+  renderTeamList();
+}
+function removeTech(i){
+  const t = DB.technicians[i];
+  if(!confirm('Remove ' + t.name + ' from the login list?')) return;
+  DB.technicians.splice(i,1);
+  saveDB();
+  renderTeamList();
+}
+function setOfficePin(){
+  const pin = prompt('Set a PIN for Back Office login (leave blank for none):', DB.officePin||'');
+  if(pin===null) return;
+  DB.officePin = pin.trim();
+  saveDB();
+  renderDashboard();
+}
+function renderDashboardList(){
+  const q = (document.getElementById('dashSearch').value || '').toLowerCase();
+  const status = document.getElementById('dashStatus').value;
+  let list = [...DB.jobs].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  if(status) list = list.filter(j=>j.status===status);
+  if(q) list = list.filter(j => [j.jobId,j.liftId,j.customerName,j.technician,j.jobCardNo].join(' ').toLowerCase().includes(q));
+  const html = list.map(j=>`
+    <div class="row-card" onclick="openFromDashboard('${esc(j.jobId)}')">
+      <div class="row-top">
+        <div><div class="row-title">${esc(j.jobId)} — ${esc(j.liftId)}</div><div class="row-id">${esc(j.customerName||'No customer name')} · Tech: ${esc(j.technician||'—')}</div></div>
+        <span class="badge ${j.status.toLowerCase().replace(' ','')}">${esc(j.status)}</span>
+      </div>
+      <div class="row-meta">${fmtDate(j.date)} · ${esc(j.type)} ${j.status==='Completed' ? '· report available' : ''}</div>
+    </div>`).join('');
+  document.getElementById('dashList').innerHTML = html || '<div class="empty"><div class="big">No jobs match</div>Try a different search or status.</div>';
+}
+function openFromDashboard(jobId){ openJob(jobId); }
+
+/* ---------- init ---------- */
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('service-worker.js').catch(()=>{});
+  });
+}
+(async function init(){
+  if(FB_READY){
+    seedDB(); // temporary defaults, replaced instantly once the first cloud snapshot arrives
+    initCloudSync();
+  } else {
+    await loadDB();
+  }
+  const saved = await getRememberedUser();
+  const stillValid = saved && saved.name && (saved.role==='office' || (DB.technicians||[]).some(t=>t.name===saved.name));
+  if(stillValid){
+    completeLogin(saved.name, saved.role);
+  }else{
+    renderLoginScreen();
+  }
+})();
+</script>
+</body>
+</html>

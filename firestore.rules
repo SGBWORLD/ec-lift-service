@@ -1,0 +1,12 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // This app has no server-side login (Firebase Auth) — the PIN screen inside
+    // the app is a courtesy check only. Anyone with the app's link can read/write,
+    // same trust model as the earlier Claude-hosted version. Good enough for an
+    // internal team tool with no public listing; do not use this for sensitive data.
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}
