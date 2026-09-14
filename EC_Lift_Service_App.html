@@ -74,8 +74,8 @@ button.btn:disabled{opacity:.45;cursor:not-allowed;}
 
 /* Badges */
 .badge{display:inline-block;font-size:11px;font-weight:500;padding:3px 9px;border-radius:20px;}
-.badge.active,.badge.completed{background:var(--green-bg);color:var(--green);}
-.badge.pending,.badge.progress,.badge.inprogress{background:var(--amber-bg);color:var(--yellow-d);}
+.badge.active,.badge.completed,.badge.reportgenerated,.badge.customeracknowledged{background:var(--green-bg);color:var(--green);}
+.badge.pending,.badge.open,.badge.progress,.badge.inprogress{background:var(--amber-bg);color:var(--yellow-d);}
 .badge.inactive,.badge.overdue{background:var(--red-bg);color:var(--red);}
 
 /* Forms */
@@ -255,6 +255,30 @@ function toast(msg){
 function esc(s){ return (s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function fmtDate(d){ if(!d) return '—'; const dt=new Date(d+'T00:00:00'); return isNaN(dt) ? d : dt.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}); }
 
+/* ---------- Google Sheets sync (live Excel-style record) ----------
+   Paste your Apps Script Web App URL below once deployed (see README).
+   Until filled in, this feature is simply skipped — everything else keeps working. */
+const SHEET_WEBHOOK_URL = "YOUR_APPS_SCRIPT_WEB_APP_URL";
+function syncToSheet(job){
+  if(!SHEET_WEBHOOK_URL || SHEET_WEBHOOK_URL.indexOf('YOUR_') === 0) return;
+  try{
+    fetch(SHEET_WEBHOOK_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: {'Content-Type':'text/plain'},
+      body: JSON.stringify({
+        jobId: job.jobId, jobCardNo: job.jobCardNo, liftId: job.liftId,
+        customerName: job.customerName, address: job.address, technician: job.technician,
+        date: job.date, status: job.status, priority: job.priority, timeIn: job.timeIn, timeOut: job.timeOut,
+        type: job.type, breakdownReason: job.breakdownReason, rectification: job.rectification,
+        notes: job.notes, finalStatus: job.finalStatus, whatsappStatus: job.whatsappStatus,
+        charge: job.charge, paymentMethod: job.paymentMethod,
+        parts: (job.parts||[]).map(p=>(p.no||'')+' '+(p.desc||'')+' x'+(p.qty||'1')).join('; ')
+      })
+    }).catch(()=>{});
+  }catch(e){ /* Sheet sync is best-effort — never block saving the job itself */ }
+}
+
 /* ---------- Firebase (cloud sync) ----------
    Paste your own project's config below (Firebase console → Project settings → your web app).
    Until this is filled in, the app falls back to preview-only storage (no cross-device sync). */
@@ -320,7 +344,7 @@ function initCloudSync(){
       const data = d.data();
       const existing = DB.jobs.find(j=>j.jobId===d.id);
       // keep any already-fetched photos cached locally, since job docs no longer store photos
-      return Object.assign(mkJob({}), data, { photos: (existing && existing.photos) || [] });
+      return Object.assign(mkJob({}), data, { status: normalizeStatus(data.status), photos: (existing && existing.photos) || [] });
     });
     DB.jobs = jobs;
     softRerender();
@@ -340,6 +364,7 @@ function softRerender(){
 }
 async function saveDB(job){
   const jobToSave = job || (currentJobId ? DB.jobs.find(x=>x.jobId===currentJobId) : null);
+  if(jobToSave) syncToSheet(jobToSave);
   if(FB_READY){
     try{
       await fbDb.collection('app').doc('meta').set({
@@ -396,7 +421,7 @@ function seedDB(){
       {id:'EC-LFT-0005', customerId:'', siteId:'', status:'Active'}
     ],
     jobs: [
-      mkJob({jobId:'JOB-001', liftId:'EC-LFT-0001', customerId:'CUST-001', siteId:'SITE-001', date:'2026-09-04', technician:'Ali', status:'Pending', notes:'Routine check', customerName:'Customer A', address:'Building A', callAttendedBy:'Ali', timeIn:'09:00', timeOut:'10:30', type:'AMC'}),
+      mkJob({jobId:'JOB-001', liftId:'EC-LFT-0001', customerId:'CUST-001', siteId:'SITE-001', date:'2026-09-04', technician:'Ali', status:'Open', notes:'Routine check', customerName:'Customer A', address:'Building A', callAttendedBy:'Ali', timeIn:'09:00', timeOut:'10:30', type:'AMC'}),
       mkJob({jobId:'JOB-002', liftId:'EC-LFT-0002', customerId:'CUST-002', siteId:'SITE-002', date:'2026-09-04', technician:'Ahmed', status:'Completed', notes:'Brake tested', customerName:'Customer B', address:'Building B', callAttendedBy:'Ahmed', timeIn:'11:00', timeOut:'12:15', type:'Repair'})
     ],
     counters:{ lift:5, job:2, report:2, customer:2, site:2 },
@@ -408,12 +433,19 @@ function mkJob(overrides){
   const checklist = {};
   Object.entries(CHECKLIST_SECTIONS).forEach(([sec, items])=>{ checklist[sec] = items.map(()=>false); });
   return Object.assign({
-    jobId:'', jobCardNo:'', liftId:'', customerId:'', siteId:'', date:'', technician:'', status:'Pending',
+    jobId:'', jobCardNo:'', liftId:'', customerId:'', siteId:'', date:'', technician:'', status:'Open',
     customerName:'', customerPhone:'', customerEmail:'', callAttendedBy:'', address:'', timeIn:'', timeOut:'',
     type:'Repair', arrivalStatus:'', breakdownReason:'', rectification:'',
     notes:'', charge:'', paymentMethod:'Cash',
+    priority:'Medium', finalStatus:'', whatsappStatus:'Pending', parts:[],
     checklist, photos:[], sig:{tech:null, techName:'', cust:null, custName:''}
   }, overrides);
+}
+const STATUS_STAGES = ['Open','In Progress','Completed','Report Generated','Customer Acknowledged'];
+function normalizeStatus(s){
+  if(s==='Pending') return 'Open';
+  if(s==='In progress') return 'In Progress';
+  return STATUS_STAGES.includes(s) ? s : 'Open';
 }
 
 /* ---------- login ---------- */
@@ -566,7 +598,7 @@ function renderLifts(){
   const el = document.getElementById('view-lifts');
   const rows = DB.lifts.map(l=>{
     const jobs = DB.jobs.filter(j=>j.liftId===l.id);
-    const open = jobs.filter(j=>j.status!=='Completed').length;
+    const open = jobs.filter(j=>['Open','In Progress'].includes(j.status)).length;
     const sub = [custName(l.customerId), siteName(l.siteId)].filter(Boolean).join(' · ') || 'No customer/site linked';
     return `<div class="row-card">
       <div class="row-top" onclick="filterJobsByLift('${esc(l.id)}')" style="cursor:pointer;">
@@ -870,7 +902,7 @@ function manualPickGo(){
   goToLiftJob(liftId);
 }
 function goToLiftJob(liftId){
-  const existing = DB.jobs.find(j=>j.liftId===liftId && j.status!=='Completed');
+  const existing = DB.jobs.find(j=>j.liftId===liftId && ['Open','In Progress'].includes(j.status));
   if(existing){
     existing.technician = existing.technician || TECH_NAME;
     const lift = DB.lifts.find(l=>l.id===liftId);
@@ -887,7 +919,7 @@ function goToLiftJob(liftId){
   const jobId = 'JOB-' + String(DB.counters.job).padStart(3,'0');
   const jobCardNo = 'JC-' + String(DB.counters.job).padStart(3,'0');
   const job = mkJob({
-    jobId, jobCardNo, liftId, date: new Date().toISOString().slice(0,10), technician: TECH_NAME, status:'Pending', timeIn: new Date().toTimeString().slice(0,5),
+    jobId, jobCardNo, liftId, date: new Date().toISOString().slice(0,10), technician: TECH_NAME, status:'Open', timeIn: new Date().toTimeString().slice(0,5),
     customerId: lift ? lift.customerId : '', siteId: lift ? lift.siteId : '',
     customerName: lift ? custName(lift.customerId) : '', address: lift ? siteAddress(lift.siteId) : ''
   });
@@ -907,7 +939,7 @@ function renderJobs(){
     <div class="row-card" onclick="openJob('${esc(j.jobId)}')">
       <div class="row-top">
         <div><div class="row-title">${esc(j.jobId)} — ${esc(j.liftId)}</div><div class="row-id">${esc(j.customerName||'No customer name')}</div></div>
-        <span class="badge ${j.status.toLowerCase()}">${esc(j.status)}</span>
+        <span class="badge ${j.status.toLowerCase().replace(' ','')}">${esc(j.status)}</span>
       </div>
       <div class="row-meta">${fmtDate(j.date)} · ${esc(j.technician||'Unassigned')} · ${esc(j.type)}</div>
     </div>`).join('');
@@ -991,7 +1023,7 @@ function createJob(){
     timeIn: document.getElementById('nj-timein').value,
     timeOut: document.getElementById('nj-timeout').value,
     type, notes: document.getElementById('nj-notes').value.trim(),
-    status:'Pending'
+    status:'Open'
   });
   DB.jobs.push(job);
   saveDB(job);
@@ -1057,6 +1089,7 @@ function renderDetailTab(){
 
 /* -- details tab -- */
 function renderDetailsTab(j, body){
+  const dur = durationText(j.timeIn, j.timeOut);
   body.innerHTML = `
     <div class="panel">
       <div class="grid-2">
@@ -1076,13 +1109,18 @@ function renderDetailsTab(j, body){
         <div><label>Time in</label><input id="d-timein" type="time" value="${esc(j.timeIn)}"></div>
         <div><label>Time out</label><input id="d-timeout" type="time" value="${esc(j.timeOut)}"></div>
       </div>
+      ${dur ? `<div class="legend" style="margin:-6px 0 14px;">Duration: ${dur}</div>` : ''}
       <label>Job type</label>
       <div class="chip-row" id="d-type-row">
         ${['Breakdown','Repair','AMC','Module'].map(t=>`<div class="chip ${j.type===t?'on':''}" data-type="${t}" onclick="pickType(this)">${t}</div>`).join('')}
       </div>
+      <label>Priority</label>
+      <div class="chip-row" id="d-priority-row">
+        ${['Low','Medium','High','Critical'].map(p=>`<div class="chip ${j.priority===p?'on':''}" data-priority="${p}" onclick="pickPriority(this)">${p}</div>`).join('')}
+      </div>
       <label>Status</label>
       <select id="d-status">
-        ${['Pending','In progress','Completed'].map(s=>`<option ${j.status===s?'selected':''}>${s}</option>`).join('')}
+        ${STATUS_STAGES.map(s=>`<option ${j.status===s?'selected':''}>${s}</option>`).join('')}
       </select>
       <label>Status of lift on arrival</label>
       <select id="d-arrival">
@@ -1093,6 +1131,8 @@ function renderDetailsTab(j, body){
       <textarea id="d-reason">${esc(j.breakdownReason)}</textarea>
       <label>Rectification &amp; remarks</label>
       <textarea id="d-rect">${esc(j.rectification)}</textarea>
+      <label>Final status</label>
+      <input id="d-finalstatus" type="text" value="${esc(j.finalStatus)}" placeholder="e.g. Handed over in working condition">
       <div class="grid-2">
         <div><label>Total charge (BD)</label><input id="d-charge" type="text" value="${esc(j.charge)}" placeholder="0.000"></div>
         <div><label>Payment method</label><select id="d-pay">${['Cash','Cheque','Not applicable'].map(p=>`<option ${j.paymentMethod===p?'selected':''}>${p}</option>`).join('')}</select></div>
@@ -1101,7 +1141,62 @@ function renderDetailsTab(j, body){
       <textarea id="d-notes">${esc(j.notes)}</textarea>
       <div style="margin-top:16px;"><button class="btn" onclick="saveDetails()">Save details</button></div>
     </div>
+    <div class="panel">
+      <h2>Parts used</h2>
+      <div id="partsList"></div>
+      <div class="grid-3" style="margin-top:6px;">
+        <div><label>Part no.</label><input id="p-no" type="text" placeholder="e.g. HC-220"></div>
+        <div><label>Description</label><input id="p-desc" type="text" placeholder="e.g. Hall sensor"></div>
+        <div><label>Qty</label><input id="p-qty" type="text" placeholder="1"></div>
+      </div>
+      <div style="margin-top:10px;"><button class="btn secondary" onclick="addPart()">Add part</button></div>
+    </div>
   `;
+  renderPartsList(j);
+}
+function durationText(timeIn, timeOut){
+  if(!timeIn || !timeOut) return '';
+  const [h1,m1] = timeIn.split(':').map(Number);
+  const [h2,m2] = timeOut.split(':').map(Number);
+  if(isNaN(h1)||isNaN(m1)||isNaN(h2)||isNaN(m2)) return '';
+  let mins = (h2*60+m2) - (h1*60+m1);
+  if(mins < 0) mins += 24*60;
+  return Math.floor(mins/60) + 'h ' + (mins%60) + 'm';
+}
+function pickPriority(el){
+  document.querySelectorAll('#d-priority-row .chip').forEach(c=>c.classList.remove('on'));
+  el.classList.add('on');
+}
+function renderPartsList(j){
+  const el = document.getElementById('partsList');
+  if(!el) return;
+  const rows = (j.parts||[]).map((p,i)=>`
+    <div class="row-card" style="padding:10px 12px;margin-bottom:6px;">
+      <div class="row-top">
+        <div class="row-title" style="font-size:13px;">${esc(p.no||'—')} · ${esc(p.desc||'')} <span class="row-id" style="display:inline;">× ${esc(p.qty||'1')}</span></div>
+        <button class="btn danger" style="padding:4px 10px;font-size:11px;" onclick="removePart(${i})">Remove</button>
+      </div>
+    </div>`).join('');
+  el.innerHTML = rows || '<div class="empty">No parts logged for this job yet.</div>';
+}
+function addPart(){
+  const no = document.getElementById('p-no').value.trim();
+  const desc = document.getElementById('p-desc').value.trim();
+  const qty = document.getElementById('p-qty').value.trim() || '1';
+  if(!no && !desc){ toast('Enter a part number or description'); return; }
+  const j = getJob();
+  j.parts = j.parts || [];
+  j.parts.push({no, desc, qty});
+  saveDB();
+  document.getElementById('p-no').value=''; document.getElementById('p-desc').value=''; document.getElementById('p-qty').value='';
+  renderPartsList(j);
+  toast('Part added');
+}
+function removePart(idx){
+  const j = getJob();
+  j.parts.splice(idx,1);
+  saveDB();
+  renderPartsList(j);
 }
 function saveDetails(){
   const j = getJob();
@@ -1115,10 +1210,12 @@ function saveDetails(){
   j.timeIn = document.getElementById('d-timein').value;
   j.timeOut = document.getElementById('d-timeout').value;
   j.type = document.querySelector('#d-type-row .chip.on')?.dataset.type || j.type;
+  j.priority = document.querySelector('#d-priority-row .chip.on')?.dataset.priority || j.priority;
   j.status = document.getElementById('d-status').value;
   j.arrivalStatus = document.getElementById('d-arrival').value;
   j.breakdownReason = document.getElementById('d-reason').value.trim();
   j.rectification = document.getElementById('d-rect').value.trim();
+  j.finalStatus = document.getElementById('d-finalstatus').value.trim();
   j.charge = document.getElementById('d-charge').value.trim();
   j.paymentMethod = document.getElementById('d-pay').value;
   j.notes = document.getElementById('d-notes').value.trim();
@@ -1307,30 +1404,55 @@ function renderReportTab(j, body){
   let total=0, done=0;
   Object.values(j.checklist).forEach(arr=>{ total+=arr.length; done+=arr.filter(Boolean).length; });
   const hasContact = j.customerPhone || j.customerEmail;
+  const stageLabel = { 'Open':'Job is open', 'In Progress':'Job is in progress', 'Completed':'Job marked completed', 'Report Generated':'Report generated', 'Customer Acknowledged':'Customer acknowledged — job closed' }[j.status] || j.status;
+
+  let actionsHtml = '';
+  if(j.status==='Open' || j.status==='In Progress'){
+    actionsHtml = `
+      <div class="desc">Finish the checklist, photos, and signatures, then mark the job completed to unlock the report step.</div>
+      <button class="btn full" onclick="markJobCompleted()">Mark job completed</button>`;
+  } else if(j.status==='Completed'){
+    actionsHtml = `
+      <div class="desc">Builds a branded PDF from this job's details, checklist, photos, and signatures — matching the Emirates Contracting service report format.</div>
+      ${!hasContact ? '<div class="field-err" style="margin-bottom:10px;">Add a customer phone or email on the Details tab to enable send options.</div>' : ''}
+      <button class="btn full" onclick="generateReport()">Generate report</button>`;
+  } else {
+    // Report Generated or Customer Acknowledged
+    actionsHtml = `
+      <div class="desc">Report already generated. Send it, then confirm once it's actually delivered.</div>
+      <div class="send-row">
+        <button class="btn secondary" onclick="downloadPDF()"><i class="ti ti-download"></i> Download PDF again</button>
+        <button class="btn secondary" ${j.customerPhone?'':'disabled'} onclick="sendWhatsApp()">Send WhatsApp message</button>
+        <button class="btn secondary" ${j.customerEmail?'':'disabled'} onclick="sendEmail()">Open email draft</button>
+      </div>
+      <button class="btn ${j.whatsappStatus==='Sent'?'secondary':''} full" style="margin-top:10px;" onclick="markWhatsAppSent()" ${j.whatsappStatus==='Sent'?'disabled':''}>${j.whatsappStatus==='Sent' ? '✓ Marked as sent' : 'Mark WhatsApp sent'}</button>
+      ${j.status==='Customer Acknowledged' ? '<div class="scan-hit" style="margin-top:10px;">Customer has acknowledged this report. Job closed.</div>' : ''}`;
+  }
+
   body.innerHTML = `
     <div class="panel">
       <h2>Complete &amp; send report</h2>
-      <div class="desc">Builds a branded PDF from this job's details, checklist, photos, and signatures — matching the Emirates Contracting service report format.</div>
-      <div class="legend">Checklist: ${done}/${total} checked · Photos: ${j.photos.length} attached · Signatures: ${(j.sig.tech?1:0)+(j.sig.cust?1:0)}/2 collected</div>
-      ${!hasContact ? '<div class="field-err" style="margin-bottom:10px;">Add a customer phone or email on the Details tab to enable send options.</div>' : ''}
-      <button class="btn full" onclick="completeAndShare()">Complete job &amp; share report</button>
-      <div class="send-row">
-        <button class="btn secondary" onclick="generatePDF()"><i class="ti ti-download"></i> Download PDF only</button>
-        <button class="btn secondary" ${j.customerPhone?'':'disabled'} onclick="sendWhatsApp()">Message on WhatsApp</button>
-        <button class="btn secondary" ${j.customerEmail?'':'disabled'} onclick="sendEmail()">Open email draft</button>
-      </div>
+      <div class="legend">${stageLabel} · Checklist: ${done}/${total} checked · Photos: ${j.photos.length} attached · Signatures: ${(j.sig.tech?1:0)+(j.sig.cust?1:0)}/2 collected · WhatsApp: ${esc(j.whatsappStatus||'Pending')}</div>
+      ${actionsHtml}
       <div id="sendNote" class="scan-status" style="margin-top:10px;"></div>
     </div>
     <div class="panel">
       <h2>To back office</h2>
-      <div class="desc">Every completed job already appears on the Back office Dashboard the moment you complete it here — no separate step needed, since the whole team shares this app's data.</div>
+      <div class="desc">${j.status==='Report Generated' ? 'Once the customer confirms they\'ve received the report, Back Office marks this job "Customer Acknowledged" from the Dashboard to close it.' : 'Every job already appears on the Back office Dashboard the moment it changes here — no separate step needed, since the whole team shares this app\'s data.'}</div>
     </div>
   `;
 }
-async function completeAndShare(){
+function markJobCompleted(){
+  const j = getJob();
+  j.status = 'Completed';
+  saveDB();
+  toast('Job marked completed');
+  renderJobDetail();
+}
+async function generateReport(){
   const j = getJob();
   const doc = buildPDFDoc(j);
-  j.status = 'Completed';
+  j.status = 'Report Generated';
   saveDB();
   const filename = (j.jobId||'service-report') + '.pdf';
   const note = document.getElementById('sendNote');
@@ -1339,21 +1461,32 @@ async function completeAndShare(){
     const file = new File([blob], filename, {type:'application/pdf'});
     if(navigator.canShare && navigator.canShare({files:[file]})){
       await navigator.share({ files:[file], title:'Service report '+j.jobId, text:'Service report for '+(j.customerName||'customer')+' — '+j.liftId });
-      note.innerHTML = '<div class="scan-hit">Job completed and report shared.</div>';
       renderJobDetail();
       return;
     }
   }catch(e){ /* user cancelled share or unsupported — fall through to download */ }
   doc.save(filename);
-  note.innerHTML = '<div class="scan-hit">Job completed. PDF downloaded — attach it in WhatsApp or email below.</div>';
   renderJobDetail();
+}
+function downloadPDF(){
+  const j = getJob();
+  const doc = buildPDFDoc(j);
+  doc.save((j.jobId||'service-report') + '.pdf');
+  toast('PDF downloaded');
 }
 function sendWhatsApp(){
   const j = getJob();
   const digits = (j.customerPhone||'').replace(/[^0-9]/g,'');
   if(!digits){ toast('Add a customer phone number first'); return; }
-  const msg = `Hello ${j.customerName||''}, your lift service report for ${j.liftId} (${j.jobId}) is complete. Please find the attached PDF — Emirates Contracting.`;
+  const msg = `Dear ${j.customerName||'Customer'}, Your EC Lift Service Report is ready. Job No: ${j.jobId} | Lift: ${j.liftId} | Date: ${fmtDate(j.date)} — PDF attached below. Emirates Contracting.`;
   window.open(`https://wa.me/${digits}?text=${encodeURIComponent(msg)}`, '_blank');
+}
+function markWhatsAppSent(){
+  const j = getJob();
+  j.whatsappStatus = 'Sent';
+  saveDB();
+  toast('Marked as sent');
+  renderJobDetail();
 }
 function sendEmail(){
   const j = getJob();
@@ -1363,15 +1496,6 @@ function sendEmail(){
   window.location.href = `mailto:${encodeURIComponent(j.customerEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(bodyText)}`;
 }
 
-function generatePDF(){
-  const j = getJob();
-  const doc = buildPDFDoc(j);
-  doc.save((j.jobId||'service-report') + '.pdf');
-  j.status = 'Completed';
-  saveDB();
-  toast('PDF downloaded');
-  renderJobDetail();
-}
 function buildPDFDoc(j){
   const lift = DB.lifts.find(l=>l.id===j.liftId) || {location:''};
   const { jsPDF } = window.jspdf;
@@ -1449,10 +1573,23 @@ function buildPDFDoc(j){
   block('REASON FOR FAULT', j.breakdownReason);
   block('RECTIFICATION & REMARKS', j.rectification);
   if(j.notes) block('GENERAL NOTES', j.notes);
+  if(j.finalStatus) block('FINAL STATUS', j.finalStatus);
 
   doc.setFont('helvetica','normal'); doc.setFontSize(9);
-  doc.text('Total charge (BD): ' + (j.charge || '—') + '     Payment method: ' + j.paymentMethod, margin, y);
+  doc.text('Priority: ' + (j.priority||'Medium') + '     Total charge (BD): ' + (j.charge || '—') + '     Payment method: ' + j.paymentMethod, margin, y);
   y += 20;
+
+  if(j.parts && j.parts.length){
+    if(y > 620){ doc.addPage(); y = 44; }
+    doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(28,37,48);
+    doc.text('PARTS USED', margin, y); y += 12;
+    doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(30,30,30);
+    j.parts.forEach(p=>{
+      doc.text('• ' + (p.no||'—') + '  —  ' + (p.desc||'') + '  (qty: ' + (p.qty||'1') + ')', margin, y);
+      y += 13;
+    });
+    y += 8;
+  }
 
   if(j.photos.length){
     if(y > 560){ doc.addPage(); y = 44; }
@@ -1492,9 +1629,9 @@ function buildPDFDoc(j){
 function renderDashboard(){
   const el = document.getElementById('view-dashboard');
   const jobs = DB.jobs;
-  const completed = jobs.filter(j=>j.status==='Completed');
-  const pending = jobs.filter(j=>j.status==='Pending');
-  const inprog = jobs.filter(j=>j.status==='In progress');
+  const completed = jobs.filter(j=>['Completed','Report Generated','Customer Acknowledged'].includes(j.status));
+  const pending = jobs.filter(j=>j.status==='Open');
+  const inprog = jobs.filter(j=>j.status==='In Progress');
   const now = new Date();
   const thisMonth = jobs.filter(j=>{ const d=new Date(j.date); return d.getFullYear()===now.getFullYear() && d.getMonth()===now.getMonth(); });
 
@@ -1511,9 +1648,7 @@ function renderDashboard(){
       <input id="dashSearch" type="text" placeholder="Search by lift, customer, technician, job ID" oninput="renderDashboardList()">
       <select id="dashStatus" onchange="renderDashboardList()">
         <option value="">All statuses</option>
-        <option>Pending</option>
-        <option>In progress</option>
-        <option>Completed</option>
+        ${STATUS_STAGES.map(s=>`<option>${s}</option>`).join('')}
       </select>
     </div>
     <div id="dashList"></div>
@@ -1592,13 +1727,24 @@ function renderDashboardList(){
   const html = list.map(j=>`
     <div class="row-card">
       <div class="row-top" onclick="openFromDashboard('${esc(j.jobId)}')" style="cursor:pointer;">
-        <div><div class="row-title">${esc(j.jobId)} — ${esc(j.liftId)}</div><div class="row-id">${esc(j.customerName||'No customer name')} · Tech: ${esc(j.technician||'—')}</div></div>
+        <div><div class="row-title">${esc(j.jobId)} — ${esc(j.liftId)}</div><div class="row-id">${esc(j.customerName||'No customer name')} · Tech: ${esc(j.technician||'—')}${j.priority&&j.priority!=='Medium'?' · '+esc(j.priority)+' priority':''}</div></div>
         <span class="badge ${j.status.toLowerCase().replace(' ','')}">${esc(j.status)}</span>
       </div>
-      <div class="row-meta" onclick="openFromDashboard('${esc(j.jobId)}')" style="cursor:pointer;">${fmtDate(j.date)} · ${esc(j.type)} ${j.status==='Completed' ? '· report available' : ''}</div>
-      <div style="margin-top:10px;"><button class="btn danger" style="padding:6px 12px;font-size:12px;" onclick="event.stopPropagation();deleteJob('${esc(j.jobId)}')">Delete job</button></div>
+      <div class="row-meta" onclick="openFromDashboard('${esc(j.jobId)}')" style="cursor:pointer;">${fmtDate(j.date)} · ${esc(j.type)}${durationText(j.timeIn,j.timeOut)?' · '+durationText(j.timeIn,j.timeOut):''} ${['Report Generated','Customer Acknowledged'].includes(j.status) ? '· report available' : ''}</div>
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
+        ${j.status==='Report Generated' && j.whatsappStatus==='Sent' ? `<button class="btn secondary" style="padding:6px 12px;font-size:12px;" onclick="event.stopPropagation();markAcknowledged('${esc(j.jobId)}')">Mark customer acknowledged</button>` : ''}
+        <button class="btn danger" style="padding:6px 12px;font-size:12px;" onclick="event.stopPropagation();deleteJob('${esc(j.jobId)}')">Delete job</button>
+      </div>
     </div>`).join('');
   document.getElementById('dashList').innerHTML = html || '<div class="empty"><div class="big">No jobs match</div>Try a different search or status.</div>';
+}
+function markAcknowledged(jobId){
+  const j = DB.jobs.find(x=>x.jobId===jobId);
+  if(!j) return;
+  j.status = 'Customer Acknowledged';
+  saveDB(j);
+  renderDashboardList();
+  toast('Marked as customer acknowledged');
 }
 function openFromDashboard(jobId){ openJob(jobId); }
 async function deleteJob(jobId){
