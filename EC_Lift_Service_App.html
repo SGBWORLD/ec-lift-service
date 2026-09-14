@@ -574,8 +574,9 @@ function renderLifts(){
         <span class="badge ${l.status.toLowerCase()}">${esc(l.status)}</span>
       </div>
       <div class="row-meta" onclick="filterJobsByLift('${esc(l.id)}')" style="cursor:pointer;">${jobs.length} job${jobs.length===1?'':'s'} on record${open?` · ${open} open`:''}</div>
-      <div style="margin-top:10px;display:flex;gap:8px;">
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn secondary" onclick="event.stopPropagation();viewLiftQR('${esc(l.id)}')">View / print QR code</button>
+        <button class="btn secondary" onclick="event.stopPropagation();editLiftLink('${esc(l.id)}')">Edit customer/site</button>
         <button class="btn danger" onclick="event.stopPropagation();removeLift('${esc(l.id)}')">Remove</button>
       </div>
     </div>`;
@@ -662,6 +663,53 @@ function removeLift(liftId){
   saveDB();
   renderLifts();
   toast('Lift removed');
+}
+function editLiftLink(liftId){
+  const lift = DB.lifts.find(l=>l.id===liftId);
+  if(!lift) return;
+  const root = document.getElementById('modal-root');
+  root.classList.remove('hidden');
+  const custOpts = DB.customers.map(c=>`<option value="${esc(c.id)}" ${c.id===lift.customerId?'selected':''}>${esc(c.name)}</option>`).join('');
+  root.innerHTML = `
+    <div class="modal-backdrop" onclick="if(event.target===this) closeModal()">
+      <div class="modal-card">
+        <h3>${esc(liftId)}</h3>
+        <div class="sub">Link this lift to the right customer and site so scans auto-fill correctly.</div>
+        <div style="text-align:left;margin-top:14px;">
+          <label>Customer</label>
+          <select id="editLiftCust" onchange="onEditLiftCustChange('${esc(liftId)}')">
+            <option value="">Select a customer</option>
+            ${custOpts}
+          </select>
+          <label style="margin-top:10px;">Site</label>
+          <select id="editLiftSite"></select>
+        </div>
+        <div class="actions">
+          <button class="btn secondary" onclick="closeModal()">Cancel</button>
+          <button class="btn" onclick="saveLiftLink('${esc(liftId)}')">Save</button>
+        </div>
+      </div>
+    </div>`;
+  onEditLiftCustChange(liftId, lift.siteId);
+}
+function onEditLiftCustChange(liftId, preselectSiteId){
+  const custId = document.getElementById('editLiftCust').value;
+  const sites = DB.sites.filter(s=>s.customerId===custId);
+  const sel = document.getElementById('editLiftSite');
+  sel.innerHTML = `<option value="">Select a site</option>` + sites.map(s=>`<option value="${esc(s.id)}" ${s.id===preselectSiteId?'selected':''}>${esc(s.name)}</option>`).join('');
+}
+function saveLiftLink(liftId){
+  const lift = DB.lifts.find(l=>l.id===liftId);
+  if(!lift) return;
+  const custId = document.getElementById('editLiftCust').value;
+  const siteId = document.getElementById('editLiftSite').value;
+  if(!custId || !siteId){ toast('Select both a customer and a site'); return; }
+  lift.customerId = custId;
+  lift.siteId = siteId;
+  saveDB();
+  closeModal();
+  renderLifts();
+  toast('Lift link updated');
 }
 function filterJobsByLift(liftId){
   window._jobFilter = liftId;
