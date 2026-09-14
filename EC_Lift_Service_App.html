@@ -292,15 +292,21 @@ async function loadDB(){
   }
   if(!DB.technicians) DB.technicians = [{name:'Ali', pin:''}, {name:'Ahmed', pin:''}];
   if(typeof DB.officePin !== 'string') DB.officePin = '';
+  if(!DB.customers) DB.customers = [];
+  if(!DB.sites) DB.sites = [];
+  if(!DB.counters.customer) DB.counters.customer = DB.customers.length;
+  if(!DB.counters.site) DB.counters.site = DB.sites.length;
 }
 function initCloudSync(){
   fbDb.collection('app').doc('meta').onSnapshot(doc=>{
     if(doc.exists){
       const d = doc.data();
       DB.lifts = d.lifts || [];
+      DB.customers = d.customers || [];
+      DB.sites = d.sites || [];
       DB.technicians = d.technicians && d.technicians.length ? d.technicians : [{name:'Ali', pin:''}, {name:'Ahmed', pin:''}];
       DB.officePin = d.officePin || '';
-      DB.counters = d.counters || {lift:5, job:2, report:2};
+      DB.counters = d.counters || {lift:5, job:2, report:2, customer:0, site:0};
     } else {
       seedDB();
       saveDB();
@@ -337,7 +343,7 @@ async function saveDB(job){
   if(FB_READY){
     try{
       await fbDb.collection('app').doc('meta').set({
-        lifts: DB.lifts, technicians: DB.technicians, officePin: DB.officePin, counters: DB.counters
+        lifts: DB.lifts, customers: DB.customers, sites: DB.sites, technicians: DB.technicians, officePin: DB.officePin, counters: DB.counters
       });
       if(jobToSave){
         const jobNoPhotos = Object.assign({}, jobToSave);
@@ -374,18 +380,26 @@ async function fetchPhotosForJob(jobId){
 }
 function seedDB(){
   DB = {
+    customers: [
+      {id:'CUST-001', name:'Customer A', phone:'', status:'Active'},
+      {id:'CUST-002', name:'Customer B', phone:'', status:'Active'}
+    ],
+    sites: [
+      {id:'SITE-001', customerId:'CUST-001', name:'Building A', address:'Building A', status:'Active'},
+      {id:'SITE-002', customerId:'CUST-002', name:'Building B', address:'Building B', status:'Active'}
+    ],
     lifts: [
-      {id:'EC-LFT-0001', location:'Building A', status:'Active'},
-      {id:'EC-LFT-0002', location:'Building B', status:'Active'},
-      {id:'EC-LFT-0003', location:'Building C', status:'Active'},
-      {id:'EC-LFT-0004', location:'Building D', status:'Active'},
-      {id:'EC-LFT-0005', location:'Building E', status:'Active'}
+      {id:'EC-LFT-0001', customerId:'CUST-001', siteId:'SITE-001', status:'Active'},
+      {id:'EC-LFT-0002', customerId:'CUST-002', siteId:'SITE-002', status:'Active'},
+      {id:'EC-LFT-0003', customerId:'', siteId:'', status:'Active'},
+      {id:'EC-LFT-0004', customerId:'', siteId:'', status:'Active'},
+      {id:'EC-LFT-0005', customerId:'', siteId:'', status:'Active'}
     ],
     jobs: [
-      mkJob({jobId:'JOB-001', liftId:'EC-LFT-0001', date:'2026-09-04', technician:'Ali', status:'Pending', notes:'Routine check', customerName:'Customer A', address:'Address A', callAttendedBy:'Ali', timeIn:'09:00', timeOut:'10:30', type:'AMC'}),
-      mkJob({jobId:'JOB-002', liftId:'EC-LFT-0002', date:'2026-09-04', technician:'Ahmed', status:'Completed', notes:'Brake tested', customerName:'Customer B', address:'Address B', callAttendedBy:'Ahmed', timeIn:'11:00', timeOut:'12:15', type:'Repair'})
+      mkJob({jobId:'JOB-001', liftId:'EC-LFT-0001', customerId:'CUST-001', siteId:'SITE-001', date:'2026-09-04', technician:'Ali', status:'Pending', notes:'Routine check', customerName:'Customer A', address:'Building A', callAttendedBy:'Ali', timeIn:'09:00', timeOut:'10:30', type:'AMC'}),
+      mkJob({jobId:'JOB-002', liftId:'EC-LFT-0002', customerId:'CUST-002', siteId:'SITE-002', date:'2026-09-04', technician:'Ahmed', status:'Completed', notes:'Brake tested', customerName:'Customer B', address:'Building B', callAttendedBy:'Ahmed', timeIn:'11:00', timeOut:'12:15', type:'Repair'})
     ],
-    counters:{ lift:5, job:2, report:2 },
+    counters:{ lift:5, job:2, report:2, customer:2, site:2 },
     technicians:[{name:'Ali', pin:''}, {name:'Ahmed', pin:''}],
     officePin:''
   };
@@ -394,7 +408,7 @@ function mkJob(overrides){
   const checklist = {};
   Object.entries(CHECKLIST_SECTIONS).forEach(([sec, items])=>{ checklist[sec] = items.map(()=>false); });
   return Object.assign({
-    jobId:'', jobCardNo:'', liftId:'', date:'', technician:'', status:'Pending',
+    jobId:'', jobCardNo:'', liftId:'', customerId:'', siteId:'', date:'', technician:'', status:'Pending',
     customerName:'', customerPhone:'', customerEmail:'', callAttendedBy:'', address:'', timeIn:'', timeOut:'',
     type:'Repair', arrivalStatus:'', breakdownReason:'', rectification:'',
     notes:'', charge:'', paymentMethod:'Cash',
@@ -545,43 +559,94 @@ function switchView(name){
 }
 
 /* ---------- LIFTS view ---------- */
+function custName(id){ const c = DB.customers.find(x=>x.id===id); return c ? c.name : ''; }
+function siteName(id){ const s = DB.sites.find(x=>x.id===id); return s ? s.name : ''; }
+function siteAddress(id){ const s = DB.sites.find(x=>x.id===id); return s ? s.address : ''; }
 function renderLifts(){
   const el = document.getElementById('view-lifts');
   const rows = DB.lifts.map(l=>{
     const jobs = DB.jobs.filter(j=>j.liftId===l.id);
     const open = jobs.filter(j=>j.status!=='Completed').length;
+    const sub = [custName(l.customerId), siteName(l.siteId)].filter(Boolean).join(' · ') || 'No customer/site linked';
     return `<div class="row-card">
       <div class="row-top" onclick="filterJobsByLift('${esc(l.id)}')" style="cursor:pointer;">
-        <div><div class="row-title">${esc(l.id)}</div><div class="row-id">${esc(l.location)}</div></div>
+        <div><div class="row-title">${esc(l.id)}</div><div class="row-id">${esc(sub)}</div></div>
         <span class="badge ${l.status.toLowerCase()}">${esc(l.status)}</span>
       </div>
       <div class="row-meta" onclick="filterJobsByLift('${esc(l.id)}')" style="cursor:pointer;">${jobs.length} job${jobs.length===1?'':'s'} on record${open?` · ${open} open`:''}</div>
       <div style="margin-top:10px;"><button class="btn secondary" onclick="event.stopPropagation();viewLiftQR('${esc(l.id)}')">View / print QR code</button></div>
     </div>`;
   }).join('');
+  const custOpts = DB.customers.map(c=>`<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');
   el.innerHTML = `
     <div class="section-head"><h1>Lifts</h1><span class="count">${DB.lifts.length} registered</span></div>
     <div class="panel" style="margin-bottom:16px;">
       <h2>Add a lift</h2>
-      <div class="grid-2">
-        <div><label>Lift ID</label><input id="newLiftId" type="text" placeholder="EC-LFT-0006"></div>
-        <div><label>Location</label><input id="newLiftLoc" type="text" placeholder="Building F"></div>
+      <div><label>Lift ID</label><input id="newLiftId" type="text" placeholder="EC-LFT-0006"></div>
+      <div class="grid-2" style="margin-top:12px;">
+        <div>
+          <label>Customer</label>
+          <select id="newLiftCust" onchange="onNewLiftCustChange()">
+            <option value="">Select a customer</option>
+            ${custOpts}
+          </select>
+        </div>
+        <div>
+          <label>Site</label>
+          <select id="newLiftSite">
+            <option value="">Select customer first</option>
+          </select>
+        </div>
       </div>
-      <div id="liftErr" class="field-err" style="display:none;"></div>
+      <div class="login-add" style="text-align:left;margin-top:8px;" onclick="quickAddCustomer()">+ New customer</div>
+      <div class="login-add" style="text-align:left;margin-top:2px;" onclick="quickAddSite()">+ New site (for selected customer)</div>
+      <div id="liftErr" class="field-err" style="display:none;margin-top:8px;"></div>
       <div style="margin-top:14px;"><button class="btn" onclick="addLift()">Add lift</button></div>
     </div>
     ${rows || '<div class="empty"><div class="big">No lifts yet</div>Add your first lift above.</div>'}
   `;
 }
+function onNewLiftCustChange(){
+  const custId = document.getElementById('newLiftCust').value;
+  const sites = DB.sites.filter(s=>s.customerId===custId);
+  const sel = document.getElementById('newLiftSite');
+  sel.innerHTML = `<option value="">Select a site</option>` + sites.map(s=>`<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('');
+}
+function quickAddCustomer(){
+  const name = prompt('Customer name:');
+  if(!name || !name.trim()) return;
+  DB.counters.customer = (DB.counters.customer||0) + 1;
+  const id = 'CUST-' + String(DB.counters.customer).padStart(3,'0');
+  DB.customers.push({id, name:name.trim(), phone:'', status:'Active'});
+  saveDB();
+  renderLifts();
+  toast('Customer added — now select them for the new lift');
+}
+function quickAddSite(){
+  const custId = document.getElementById('newLiftCust').value;
+  if(!custId){ toast('Select a customer first'); return; }
+  const name = prompt('Site / building name:');
+  if(!name || !name.trim()) return;
+  const address = prompt('Site address:') || '';
+  DB.counters.site = (DB.counters.site||0) + 1;
+  const id = 'SITE-' + String(DB.counters.site).padStart(3,'0');
+  DB.sites.push({id, customerId:custId, name:name.trim(), address, status:'Active'});
+  saveDB();
+  renderLifts();
+  onNewLiftCustChange();
+  toast('Site added — now select it for the new lift');
+}
 function addLift(){
   const idEl = document.getElementById('newLiftId');
-  const locEl = document.getElementById('newLiftLoc');
+  const custEl = document.getElementById('newLiftCust');
+  const siteEl = document.getElementById('newLiftSite');
   const errEl = document.getElementById('liftErr');
-  const id = idEl.value.trim(); const loc = locEl.value.trim();
-  if(!id || !loc){ errEl.textContent = 'Enter both a lift ID and a location.'; errEl.style.display='block'; return; }
+  const id = idEl.value.trim();
+  if(!id){ errEl.textContent = 'Enter a lift ID.'; errEl.style.display='block'; return; }
+  if(!custEl.value || !siteEl.value){ errEl.textContent = 'Select both a customer and a site — this is what lets the QR scan auto-fill the job.'; errEl.style.display='block'; return; }
   if(DB.lifts.some(l=>l.id.toLowerCase()===id.toLowerCase())){ errEl.textContent = 'That lift ID already exists.'; errEl.style.display='block'; return; }
   errEl.style.display='none';
-  DB.lifts.push({id, location:loc, status:'Active'});
+  DB.lifts.push({id, customerId:custEl.value, siteId:siteEl.value, status:'Active'});
   saveDB(); renderLifts(); toast('Lift added');
 }
 function filterJobsByLift(liftId){
@@ -642,7 +707,7 @@ function renderScan(){
       <h2>Or pick a lift manually</h2>
       <select id="manualLiftPick">
         <option value="">Select a lift</option>
-        ${DB.lifts.map(l=>`<option value="${esc(l.id)}">${esc(l.id)} — ${esc(l.location)}</option>`).join('')}
+        ${DB.lifts.map(l=>`<option value="${esc(l.id)}">${esc(l.id)} — ${esc(custName(l.customerId)||'unlinked')}</option>`).join('')}
       </select>
       <div style="margin-top:10px;"><button class="btn secondary full" onclick="manualPickGo()">Open this lift</button></div>
     </div>
@@ -709,10 +774,15 @@ function manualPickGo(){
 function goToLiftJob(liftId){
   const existing = DB.jobs.find(j=>j.liftId===liftId && j.status!=='Completed');
   if(existing){ existing.technician = existing.technician || TECH_NAME; saveDB(existing); openJob(existing.jobId); return; }
+  const lift = DB.lifts.find(l=>l.id===liftId);
   DB.counters.job += 1;
   const jobId = 'JOB-' + String(DB.counters.job).padStart(3,'0');
   const jobCardNo = 'JC-' + String(DB.counters.job).padStart(3,'0');
-  const job = mkJob({ jobId, jobCardNo, liftId, date: new Date().toISOString().slice(0,10), technician: TECH_NAME, status:'Pending', timeIn: new Date().toTimeString().slice(0,5) });
+  const job = mkJob({
+    jobId, jobCardNo, liftId, date: new Date().toISOString().slice(0,10), technician: TECH_NAME, status:'Pending', timeIn: new Date().toTimeString().slice(0,5),
+    customerId: lift ? lift.customerId : '', siteId: lift ? lift.siteId : '',
+    customerName: lift ? custName(lift.customerId) : '', address: lift ? siteAddress(lift.siteId) : ''
+  });
   DB.jobs.push(job);
   saveDB(job);
   toast('Job ' + jobId + ' started at ' + liftId);
@@ -746,12 +816,12 @@ function clearJobFilter(e){ e.preventDefault(); window._jobFilter=null; renderJo
 /* ---------- NEW JOB view ---------- */
 function renderNewJob(){
   const el = document.getElementById('view-newjob');
-  const liftOpts = DB.lifts.map(l=>`<option value="${esc(l.id)}">${esc(l.id)} — ${esc(l.location)}</option>`).join('');
+  const liftOpts = DB.lifts.map(l=>`<option value="${esc(l.id)}">${esc(l.id)} — ${esc(custName(l.customerId)||'unlinked')}</option>`).join('');
   el.innerHTML = `
     <div class="section-head"><h1>New job</h1></div>
     <div class="panel">
       <div class="grid-2">
-        <div><label>Lift</label><select id="nj-lift"><option value="">Select a lift</option>${liftOpts}</select></div>
+        <div><label>Lift</label><select id="nj-lift" onchange="onNewJobLiftChange()"><option value="">Select a lift</option>${liftOpts}</select></div>
         <div><label>Date</label><input id="nj-date" type="date" value="${new Date().toISOString().slice(0,10)}"></div>
       </div>
       <div class="grid-2">
@@ -759,8 +829,8 @@ function renderNewJob(){
         <div><label>Call attended by</label><input id="nj-attend" type="text" placeholder="Name"></div>
       </div>
       <div class="grid-2">
-        <div><label>Customer name</label><input id="nj-cust" type="text" placeholder="Customer name"></div>
-        <div><label>Address</label><input id="nj-addr" type="text" placeholder="Site address"></div>
+        <div><label>Customer name</label><input id="nj-cust" type="text" placeholder="Auto-fills from lift, or type manually"></div>
+        <div><label>Address</label><input id="nj-addr" type="text" placeholder="Auto-fills from lift, or type manually"></div>
       </div>
       <div class="grid-2">
         <div><label>Time in</label><input id="nj-timein" type="time"></div>
@@ -776,6 +846,13 @@ function renderNewJob(){
       <div style="margin-top:16px;"><button class="btn" onclick="createJob()">Create job</button></div>
     </div>
   `;
+}
+function onNewJobLiftChange(){
+  const liftId = document.getElementById('nj-lift').value;
+  const lift = DB.lifts.find(l=>l.id===liftId);
+  if(!lift) return;
+  document.getElementById('nj-cust').value = custName(lift.customerId);
+  document.getElementById('nj-addr').value = siteAddress(lift.siteId);
 }
 function pickType(chip){
   document.querySelectorAll('#nj-type-row .chip').forEach(c=>c.classList.remove('on'));
@@ -796,8 +873,10 @@ function createJob(){
   const jobId = 'JOB-' + String(DB.counters.job).padStart(3,'0');
   const jobCardNo = 'JC-' + String(DB.counters.job).padStart(3,'0');
   const type = document.querySelector('#nj-type-row .chip.on')?.dataset.type || 'Repair';
+  const lift = DB.lifts.find(l=>l.id===liftId);
   const job = mkJob({
     jobId, jobCardNo, liftId, date, technician:tech,
+    customerId: lift ? lift.customerId : '', siteId: lift ? lift.siteId : '',
     callAttendedBy: document.getElementById('nj-attend').value.trim(),
     customerName: document.getElementById('nj-cust').value.trim(),
     address: document.getElementById('nj-addr').value.trim(),
@@ -1215,7 +1294,7 @@ function buildPDFDoc(j){
   field('CALL ATTENDED BY', j.callAttendedBy, margin+colW+20, colW);
   y += 26;
   field('LIFT NO', j.liftId, margin, colW);
-  field('LOCATION', lift.location, margin+colW+20, colW);
+  field('LOCATION', siteName(lift.siteId), margin+colW+20, colW);
   y += 26;
   field('ADDRESS', j.address, margin, colW*2+20);
   y += 26;
