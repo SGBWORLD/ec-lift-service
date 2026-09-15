@@ -76,7 +76,8 @@ button.btn:disabled{opacity:.45;cursor:not-allowed;}
 .badge{display:inline-block;font-size:11px;font-weight:500;padding:3px 9px;border-radius:20px;}
 .badge.active,.badge.completed,.badge.reportgenerated,.badge.customeracknowledged{background:var(--green-bg);color:var(--green);}
 .badge.pending,.badge.open,.badge.progress,.badge.inprogress{background:var(--amber-bg);color:var(--yellow-d);}
-.badge.inactive,.badge.overdue{background:var(--red-bg);color:var(--red);}
+.badge.inactive,.badge.overdue,.badge.nonactive{background:var(--red-bg);color:var(--red);}
+.badge.underrenewalgraceperiod{background:var(--amber-bg);color:var(--yellow-d);}
 
 /* Forms */
 label{display:block;font-size:12px;font-weight:500;color:var(--ink-soft);margin:12px 0 5px;}
@@ -193,6 +194,11 @@ canvas.sig-pad{width:100%;height:150px;display:block;touch-action:none;cursor:cr
 .search-row{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;}
 .search-row input{flex:1;min-width:160px;}
 .search-row select{width:auto;}
+.cust-contract-box{margin-top:10px;padding:10px 12px;background:var(--paper-2);border-radius:8px;display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;}
+.cust-contract-box .k{display:block;font-size:10px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.03em;}
+.cust-contract-box .v{display:block;font-size:12.5px;color:var(--ink);}
+.lift-chip-row{font-size:12px;padding:6px 0;border-bottom:1px solid #F0EEE7;color:var(--ink);}
+@media (max-width:560px){ .cust-contract-box{grid-template-columns:1fr;} }
 .send-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
 .send-row button{flex:1;min-width:140px;}
 </style>
@@ -225,6 +231,7 @@ canvas.sig-pad{width:100%;height:150px;display:block;touch-action:none;cursor:cr
     <button data-view="lifts">Lifts</button>
     <button data-view="jobs">Jobs</button>
     <button data-view="newjob">New job</button>
+    <button data-view="customers">Customers</button>
     <button data-view="dashboard">Dashboard</button>
   </div>
   <div id="noCloudBanner" class="hidden" style="background:var(--amber-bg);color:var(--yellow-d);font-size:12px;padding:8px 16px;text-align:center;">Cloud sync isn't connected yet — changes stay on this device only. See setup instructions.</div>
@@ -235,6 +242,7 @@ canvas.sig-pad{width:100%;height:150px;display:block;touch-action:none;cursor:cr
   <div class="view hidden" id="view-newjob"></div>
   <div class="view hidden" id="view-jobdetail"></div>
   <div class="view hidden" id="view-dashboard"></div>
+  <div class="view hidden" id="view-customers"></div>
   <div class="view hidden" id="modal-root"></div>
 
   <div class="footer-note">Data is stored for this app link and shared across everyone using it — no account, no cost.</div>
@@ -311,10 +319,22 @@ function syncToSheet(job){
         notes: job.notes, finalStatus: job.finalStatus, whatsappStatus: job.whatsappStatus,
         charge: job.charge, paymentMethod: job.paymentMethod,
         checklistProgress: answered+'/'+total, attentionItems: attention,
-        parts: (job.parts||[]).map(p=>(p.no||'')+' '+(p.desc||'')+' x'+(p.qty||'1')).join('; ')
+        parts: (job.parts||[]).map(p=>(p.no||'')+' '+(p.desc||'')+' x'+(p.qty||'1')).join('; '),
+        partsList: (job.parts||[]).map(p=>({no:p.no||'', desc:p.desc||'', qty:p.qty||'1'}))
       })
     }).catch(()=>{});
   }catch(e){ /* Sheet sync is best-effort — never block saving the job itself */ }
+}
+function syncPhotoToSheet(jobId, photo){
+  if(!SHEET_WEBHOOK_URL || SHEET_WEBHOOK_URL.indexOf('YOUR_') === 0) return;
+  try{
+    fetch(SHEET_WEBHOOK_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: {'Content-Type':'text/plain'},
+      body: JSON.stringify({ kind:'photo', jobId, photoId: photo.id, caption: photo.caption||'', dataUrl: photo.data })
+    }).catch(()=>{});
+  }catch(e){ /* best-effort */ }
 }
 
 /* ---------- Firebase (cloud sync) ----------
@@ -399,6 +419,7 @@ function softRerender(){
   if(name === 'lifts') renderLifts();
   else if(name === 'jobs') renderJobs();
   else if(name === 'dashboard') renderDashboard();
+  else if(name === 'customers') renderCustomersView();
 }
 async function saveDB(job){
   const jobToSave = job || (currentJobId ? DB.jobs.find(x=>x.jobId===currentJobId) : null);
@@ -621,7 +642,7 @@ function setRole(role){
   document.querySelectorAll('#mainNav button').forEach(b=>{
     const v = b.dataset.view;
     const techOnly = (v==='scan' || v==='newjob');
-    const officeOnly = (v==='dashboard');
+    const officeOnly = (v==='dashboard' || v==='customers');
     b.classList.toggle('hidden', role==='tech' ? officeOnly : techOnly);
   });
   switchView(role==='tech' ? 'scan' : 'dashboard');
@@ -632,7 +653,7 @@ document.querySelectorAll('.nav button').forEach(b=>{
 function switchView(name){
   stopScanner();
   document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active', b.dataset.view===name));
-  ['scan','lifts','jobs','newjob','jobdetail','dashboard'].forEach(v=>{
+  ['scan','lifts','jobs','newjob','jobdetail','dashboard','customers'].forEach(v=>{
     document.getElementById('view-'+v).classList.toggle('hidden', v!==name);
   });
   if(name==='scan') renderScan();
@@ -640,6 +661,7 @@ function switchView(name){
   if(name==='jobs') renderJobs();
   if(name==='newjob') renderNewJob();
   if(name==='dashboard') renderDashboard();
+  if(name==='customers') renderCustomersView();
 }
 
 /* ---------- LIFTS view ---------- */
@@ -701,7 +723,10 @@ function onNewLiftCustChange(){
   sel.innerHTML = `<option value="">Select a site</option>` + sites.map(s=>`<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('');
 }
 function quickAddCustomer(){
-  openCustomerModal(null, ()=>{ renderLifts(); });
+  openCustomerModal(null, ()=>{
+    if(document.getElementById('customersFullList')) renderCustomersView_list();
+    if(document.getElementById('view-lifts') && !document.getElementById('view-lifts').classList.contains('hidden')) renderLifts();
+  });
 }
 function isOverdue(c){
   if(!c.serviceWindowEnd) return false;
@@ -727,7 +752,7 @@ function openCustomerModal(customerId, onSaved){
           <select id="cm-type">${['AMC','Cash Customer','Service On Call'].map(t=>`<option ${c.type===t?'selected':''}>${t}</option>`).join('')}</select>
           <div class="grid-2" style="margin-top:8px;">
             <div><label>Contact person</label><input id="cm-contact" type="text" value="${esc(c.contactPerson)}"></div>
-            <div><label>Status</label><select id="cm-status">${['Active','Inactive'].map(s=>`<option ${c.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
+            <div><label>Status</label><select id="cm-status">${['Active','Non-Active','Under Renewal - Grace Period'].map(s=>`<option ${c.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
           </div>
           <div class="grid-2" style="margin-top:8px;">
             <div><label>Phone</label><input id="cm-phone" type="text" value="${esc(c.phone)}" placeholder="+973 XXXX XXXX"></div>
@@ -789,7 +814,7 @@ function saveCustomerModal(customerId){
   closeModal();
   toast(customerId ? 'Customer updated' : 'Customer added');
   if(window._customerModalOnSaved) window._customerModalOnSaved();
-  if(document.getElementById('customersList')) renderCustomersList();
+  if(document.getElementById('customersFullList')) renderCustomersView_list();
 }
 function removeCustomer(customerId){
   const usedByLifts = DB.lifts.filter(l=>l.customerId===customerId).length;
@@ -799,26 +824,71 @@ function removeCustomer(customerId){
   if(!confirm(msg)) return;
   DB.customers = DB.customers.filter(c=>c.id!==customerId);
   saveDB();
-  renderCustomersList();
+  if(document.getElementById('customersFullList')) renderCustomersView_list();
   toast('Customer removed');
 }
-function renderCustomersList(){
-  const el = document.getElementById('customersList');
+function statusClass(s){ return (s||'').toLowerCase().replace(/[^a-z0-9]/g,''); }
+function renderCustomersView(){
+  const el = document.getElementById('view-customers');
+  el.innerHTML = `
+    <div class="section-head"><h1>Customers</h1><span class="count">${DB.customers.length} registered</span></div>
+    <div class="search-row">
+      <input id="custSearch" type="text" placeholder="Search by customer, contract ID, or contact person" oninput="renderCustomersView_list()">
+      <button class="btn secondary" onclick="quickAddCustomer()">+ Add customer</button>
+    </div>
+    <div id="customersFullList"></div>
+  `;
+  renderCustomersView_list();
+}
+function renderCustomersView_list(){
+  const el = document.getElementById('customersFullList');
   if(!el) return;
-  const rows = DB.customers.map(c=>`
-    <div class="row-card" style="padding:10px 12px;margin-bottom:6px;">
+  const q = (document.getElementById('custSearch')?.value || '').toLowerCase();
+  const list = DB.customers.filter(c=>!q ||
+    (c.name||'').toLowerCase().includes(q) ||
+    (c.contractId||'').toLowerCase().includes(q) ||
+    (c.contactPerson||'').toLowerCase().includes(q));
+
+  const rows = list.map(c=>{
+    const lifts = DB.lifts.filter(l=>l.customerId===c.id);
+    const liftsHtml = lifts.length ? lifts.map(l=>`
+      <div class="lift-chip-row">
+        <span>${esc(l.id)}</span> — <span>${esc(siteName(l.siteId)||'No site')}</span>
+        <span class="badge ${statusClass(l.status)}" style="margin-left:8px;">${esc(l.status)}</span>
+      </div>`).join('')
+      : '<div class="empty" style="padding:8px 0;">No lifts registered under this customer yet.</div>';
+
+    return `
+    <div class="row-card" style="margin-bottom:12px;">
       <div class="row-top">
         <div>
-          <div class="row-title" style="font-size:13px;">${esc(c.name)} <span class="row-id" style="display:inline;">· ${esc(c.type||'')} · ${esc(c.maintenanceFrequency||'')}</span></div>
-          <div class="row-id">${esc(c.contactPerson||'')} ${c.phone?'· '+esc(c.phone):''} ${isOverdue(c) ? '· <span style="color:var(--red);">Overdue</span>' : ''}</div>
+          <div class="row-title">${esc(c.name)}</div>
+          <div class="row-id">${esc(c.id)} · ${esc(c.type||'')} ${c.contactPerson?'· '+esc(c.contactPerson):''}</div>
         </div>
-        <div style="display:flex;gap:6px;">
-          <button class="btn secondary" style="padding:4px 10px;font-size:11px;" onclick='openCustomerModal("${esc(c.id)}", renderCustomersList)'>Edit</button>
-          <button class="btn danger" style="padding:4px 10px;font-size:11px;" onclick="removeCustomer('${esc(c.id)}')">Remove</button>
-        </div>
+        <span class="badge ${statusClass(c.status)}">${esc(c.status||'Active')}</span>
       </div>
-    </div>`).join('');
-  el.innerHTML = rows || '<div class="empty">No customers added yet.</div>';
+      <div class="row-meta">
+        ${c.phone?'📞 '+esc(c.phone)+'  ':''}${c.email?'✉️ '+esc(c.email):''}
+      </div>
+      ${c.address?`<div class="row-meta">${esc(c.address)}</div>`:''}
+      <div class="cust-contract-box">
+        <div><span class="k">Contract ID</span><span class="v">${esc(c.contractId||'—')}</span></div>
+        <div><span class="k">Contract period</span><span class="v">${c.contractStart?fmtDate(c.contractStart):'—'} → ${c.contractEnd?fmtDate(c.contractEnd):'—'}</span></div>
+        <div><span class="k">Frequency</span><span class="v">${esc(c.maintenanceFrequency||'—')}</span></div>
+        <div><span class="k">Service window</span><span class="v">${c.serviceWindowStart?fmtDate(c.serviceWindowStart):'—'} → ${c.serviceWindowEnd?fmtDate(c.serviceWindowEnd):'—'}</span></div>
+        <div><span class="k">Next service due</span><span class="v">${c.nextServiceDue?fmtDate(c.nextServiceDue):'—'} ${isOverdue(c)?'<span style="color:var(--red);font-weight:600;">· OVERDUE</span>':''}</span></div>
+      </div>
+      <div style="margin-top:10px;">
+        <div class="legend" style="margin-bottom:6px;">${lifts.length} lift${lifts.length===1?'':'s'} registered</div>
+        ${liftsHtml}
+      </div>
+      <div style="margin-top:12px;display:flex;gap:8px;">
+        <button class="btn secondary" style="padding:6px 12px;font-size:12px;" onclick='openCustomerModal("${esc(c.id)}", renderCustomersView_list)'>Edit</button>
+        <button class="btn danger" style="padding:6px 12px;font-size:12px;" onclick="removeCustomer('${esc(c.id)}')">Remove</button>
+      </div>
+    </div>`;
+  }).join('');
+  el.innerHTML = rows || '<div class="empty"><div class="big">No customers yet</div>Add one to get started.</div>';
 }
 function quickAddSite(){
   const custId = document.getElementById('newLiftCust').value;
@@ -1476,6 +1546,7 @@ function attachChecklistPhoto(sec, idx, e){
         j.photos.push(photo);
       }
       j.checklist[sec][idx].photoId = photo.id;
+      syncPhotoToSheet(j.jobId, photo);
       saveDB();
       renderChecklistTab(j, document.getElementById('detail-body'));
       toast('Photo attached');
@@ -1544,6 +1615,7 @@ function handlePhotoUpload(e){
         j.photos.push(photo);
         saveDB();
       }
+      syncPhotoToSheet(j.jobId, photo);
       renderDetailTab();
       toast('Photo added');
     };
@@ -1938,13 +2010,6 @@ function renderDashboard(){
     <div id="dashList"></div>
 
     <div class="panel" style="margin-top:18px;">
-      <h2>Customers</h2>
-      <div class="desc">Full customer records — contract, service window, and contact details. Feeds the QR auto-fill and the live Sheet sync.</div>
-      <div id="customersList"></div>
-      <div style="margin-top:10px;"><button class="btn secondary" onclick="quickAddCustomer()">+ Add customer</button></div>
-    </div>
-
-    <div class="panel" style="margin-top:18px;">
       <h2>Team &amp; login PINs</h2>
       <div class="desc">Names here appear on the login screen. PIN is optional — it's a courtesy check, not real security, since this app has no server. Leave blank for no PIN.</div>
       <div id="teamList"></div>
@@ -1958,7 +2023,6 @@ function renderDashboard(){
     </div>
   `;
   renderDashboardList();
-  renderCustomersList();
   renderTeamList();
 }
 function renderTeamList(){
