@@ -735,6 +735,27 @@ function isOverdue(c){
   today.setHours(0,0,0,0);
   return end < today;
 }
+function nextServiceDueApprox(c){
+  if(c.nextServiceDue) return new Date(c.nextServiceDue);
+  if(!c.serviceWindowStart) return null;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const d = new Date(c.serviceWindowStart);
+  if(isNaN(d.getTime())) return null;
+  const freq = c.maintenanceFrequency || 'Monthly';
+  let guard = 0;
+  if(freq==='Weekly'){
+    while(d < today && guard < 520){ d.setDate(d.getDate()+7); guard++; }
+  } else {
+    const step = freq==='Quarterly' ? 3 : 1;
+    while(d < today && guard < 120){ d.setMonth(d.getMonth()+step); guard++; }
+  }
+  return d;
+}
+function daysUntil(date){
+  const today = new Date(); today.setHours(0,0,0,0);
+  const d = new Date(date); d.setHours(0,0,0,0);
+  return Math.round((d-today)/86400000);
+}
 function openCustomerModal(customerId, onSaved){
   const c = customerId ? DB.customers.find(x=>x.id===customerId) : {
     id:'', name:'', type:'AMC', contactPerson:'', phone:'', whatsapp:'', email:'', address:'', status:'Active',
@@ -889,7 +910,7 @@ function renderCustomersView_list(){
         <div><span class="k">Contract period</span><span class="v">${c.contractStart?fmtDate(c.contractStart):'—'} → ${c.contractEnd?fmtDate(c.contractEnd):'—'}</span></div>
         <div><span class="k">Frequency</span><span class="v">${esc(c.maintenanceFrequency||'—')}</span></div>
         <div><span class="k">Service window</span><span class="v">${c.serviceWindowStart?fmtDate(c.serviceWindowStart):'—'} → ${c.serviceWindowEnd?fmtDate(c.serviceWindowEnd):'—'}</span></div>
-        <div><span class="k">Next service due</span><span class="v">${c.nextServiceDue?fmtDate(c.nextServiceDue):'—'} ${isOverdue(c)?'<span style="color:var(--red);font-weight:600;">· OVERDUE</span>':''}</span></div>
+        <div><span class="k">Next service due</span><span class="v">${(()=>{ const nd=nextServiceDueApprox(c); if(!nd) return '—'; const du=daysUntil(nd); const label = fmtDate(nd) + (c.nextServiceDue?'':' (approx)'); const flag = du<0 ? '<span style="color:var(--red);font-weight:600;"> · OVERDUE</span>' : (du<=7 ? '<span style="color:var(--yellow-d);font-weight:600;"> · in '+du+' day'+(du===1?'':'s')+'</span>' : ''); return label+flag; })()}</span></div>
       </div>
       <div style="margin-top:10px;">
         <div class="legend" style="margin-bottom:6px;">${lifts.length} lift${lifts.length===1?'':'s'} registered</div>
@@ -2007,8 +2028,36 @@ function renderDashboard(){
   const now = new Date();
   const thisMonth = jobs.filter(j=>{ const d=new Date(j.date); return d.getFullYear()===now.getFullYear() && d.getMonth()===now.getMonth(); });
 
+  const upcoming = DB.customers.map(c=>{
+    const due = nextServiceDueApprox(c);
+    if(!due) return null;
+    const du = daysUntil(due);
+    return { c, due, du };
+  }).filter(x=>x && x.du>=0 && x.du<=7).sort((a,b)=>a.du-b.du);
+
+  const upcomingHtml = upcoming.length ? upcoming.map(({c,due,du})=>{
+    const lifts = DB.lifts.filter(l=>l.customerId===c.id).map(l=>l.id).join(', ') || 'No lifts linked';
+    return `<div class="row-card" style="padding:10px 12px;margin-bottom:6px;">
+      <div class="row-top">
+        <div>
+          <div class="row-title" style="font-size:13px;">${esc(c.name)}</div>
+          <div class="row-id">${esc(lifts)}</div>
+        </div>
+        <span class="badge ${du===0?'inactive':(du<=2?'pending':'active')}">${du===0?'Due today':'in '+du+' day'+(du===1?'':'s')}</span>
+      </div>
+      <div class="row-meta">${fmtDate(due)} · ${esc(c.maintenanceFrequency||'')}</div>
+    </div>`;
+  }).join('') : '<div class="empty">Nothing due in the next 7 days.</div>';
+
   el.innerHTML = `
     <div class="section-head"><h1>Back office dashboard</h1><span class="count">All lifts, all technicians</span></div>
+
+    <div class="panel" style="margin-bottom:18px;">
+      <h2>Upcoming this week</h2>
+      <div class="desc">Customers whose service window falls in the next 7 days, based on their maintenance frequency.</div>
+      ${upcomingHtml}
+    </div>
+
     <div class="stat-grid">
       <div class="stat-card"><div class="num">${DB.lifts.length}</div><div class="lbl">Lifts registered</div></div>
       <div class="stat-card"><div class="num">${jobs.length}</div><div class="lbl">Total jobs</div></div>
