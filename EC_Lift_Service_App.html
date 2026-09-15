@@ -374,6 +374,7 @@ async function loadDB(){
   }
   if(!DB.technicians) DB.technicians = [{name:'Ali', pin:''}, {name:'Ahmed', pin:''}];
   if(typeof DB.officePin !== 'string') DB.officePin = '';
+  if(typeof DB.allowManualLiftOpen !== 'boolean') DB.allowManualLiftOpen = true;
   if(!DB.customers) DB.customers = [];
   if(!DB.sites) DB.sites = [];
   if(!DB.counters.customer) DB.counters.customer = DB.customers.length;
@@ -388,6 +389,7 @@ function initCloudSync(){
       DB.sites = d.sites || [];
       DB.technicians = d.technicians && d.technicians.length ? d.technicians : [{name:'Ali', pin:''}, {name:'Ahmed', pin:''}];
       DB.officePin = d.officePin || '';
+      DB.allowManualLiftOpen = d.allowManualLiftOpen !== false;
       DB.counters = d.counters || {lift:5, job:2, report:2, customer:0, site:0};
     } else {
       seedDB();
@@ -428,7 +430,8 @@ async function saveDB(job){
   if(FB_READY){
     try{
       await fbDb.collection('app').doc('meta').set({
-        lifts: DB.lifts, customers: DB.customers, sites: DB.sites, technicians: DB.technicians, officePin: DB.officePin, counters: DB.counters
+        lifts: DB.lifts, customers: DB.customers, sites: DB.sites, technicians: DB.technicians, officePin: DB.officePin,
+        allowManualLiftOpen: DB.allowManualLiftOpen, counters: DB.counters
       });
       if(jobToSave){
         const jobNoPhotos = Object.assign({}, jobToSave);
@@ -486,7 +489,8 @@ function seedDB(){
     ],
     counters:{ lift:5, job:2, report:2, customer:2, site:2 },
     technicians:[{name:'Ali', pin:''}, {name:'Ahmed', pin:''}],
-    officePin:''
+    officePin:'',
+    allowManualLiftOpen: true
   };
 }
 function mkJob(overrides){
@@ -1066,14 +1070,19 @@ function renderScan(){
         <div id="scanStatus" class="scan-status"></div>
       </div>
     </div>
+    ${(DB.allowManualLiftOpen!==false || ROLE==='office') ? `
     <div class="panel">
       <h2>Or pick a lift manually</h2>
+      ${DB.allowManualLiftOpen===false ? '<div class="legend">Manual entry is currently off for technicians — only Back Office can use it. Enable it from the Dashboard if scanning is having trouble.</div>' : ''}
       <select id="manualLiftPick">
         <option value="">Select a lift</option>
         ${DB.lifts.map(l=>`<option value="${esc(l.id)}">${esc(l.id)} — ${esc(custName(l.customerId)||'unlinked')}</option>`).join('')}
       </select>
       <div style="margin-top:10px;"><button class="btn secondary full" onclick="manualPickGo()">Open this lift</button></div>
-    </div>
+    </div>` : `
+    <div class="panel">
+      <div class="legend">Manual lift entry is off — please scan the QR code. If scanning isn't working, contact Back Office.</div>
+    </div>`}
   `;
 }
 async function startScanner(){
@@ -1154,6 +1163,19 @@ function stopScanner(){
   scanRAF = null;
   if(scanStream){ scanStream.getTracks().forEach(t=>t.stop()); scanStream = null; }
 }
+function playBeep(){
+  try{
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'square';
+    osc.frequency.value = 1500;
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.start(); osc.stop(ctx.currentTime + 0.15);
+  }catch(e){ /* audio not available — ignore */ }
+}
 function handleScanHit(liftId){
   stopScanner();
   const status = document.getElementById('scanStatus');
@@ -1162,6 +1184,7 @@ function handleScanHit(liftId){
     if(status) status.innerHTML = `<div class="field-err">Scanned code "${esc(liftId)}" does not match a known lift.</div>`;
     return;
   }
+  playBeep();
   if(status) status.innerHTML = `<div class="scan-hit">Matched ${esc(liftId)} — opening job…</div>`;
   setTimeout(()=> goToLiftJob(liftId), 400);
 }
@@ -2082,6 +2105,15 @@ function renderDashboard(){
     </div>
 
     <div class="panel" style="margin-top:18px;">
+      <h2>Scanning</h2>
+      <div class="desc">When off, technicians must scan the QR code and can't pick a lift manually — reduces mistakes from opening the wrong job. Turn it back on temporarily if a technician reports a scanning problem.</div>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:6px;">
+        <input type="checkbox" id="manualToggle" ${DB.allowManualLiftOpen!==false?'checked':''} onchange="toggleManualLiftOpen(this.checked)" style="width:16px;height:16px;">
+        <span style="font-size:13px;">Allow technicians to open a lift manually (without scanning)</span>
+      </label>
+    </div>
+
+    <div class="panel" style="margin-top:18px;">
       <h2>Team &amp; login PINs</h2>
       <div class="desc">Names here appear on the login screen. PIN is optional — it's a courtesy check, not real security, since this app has no server. Leave blank for no PIN.</div>
       <div id="teamList"></div>
@@ -2096,6 +2128,11 @@ function renderDashboard(){
   `;
   renderDashboardList();
   renderTeamList();
+}
+function toggleManualLiftOpen(val){
+  DB.allowManualLiftOpen = val;
+  saveDB();
+  toast(val ? 'Manual lift entry enabled' : 'Manual lift entry disabled — technicians must scan');
 }
 function resetJobCounter(){
   const current = DB.counters.job || 0;
