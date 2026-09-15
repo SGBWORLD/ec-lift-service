@@ -747,7 +747,8 @@ function openCustomerModal(customerId, onSaved){
       <div class="modal-card" style="max-width:480px;">
         <h3 style="text-align:left;">${customerId ? 'Edit customer' : 'New customer'}</h3>
         <div style="text-align:left;max-height:70vh;overflow-y:auto;padding-right:4px;">
-          <label>Customer name</label><input id="cm-name" type="text" value="${esc(c.name)}">
+          <label>Customer ID</label><input id="cm-id" type="text" value="${esc(c.id || suggestNextCustomerId())}">
+          <label style="margin-top:8px;">Customer name</label><input id="cm-name" type="text" value="${esc(c.name)}">
           <label style="margin-top:8px;">Customer type</label>
           <select id="cm-type">${['AMC','Cash Customer','Service On Call'].map(t=>`<option ${c.type===t?'selected':''}>${t}</option>`).join('')}</select>
           <div class="grid-2" style="margin-top:8px;">
@@ -782,9 +783,18 @@ function openCustomerModal(customerId, onSaved){
     </div>`;
   window._customerModalOnSaved = onSaved;
 }
+function suggestNextCustomerId(){
+  let n = (DB.customers||[]).length + 1;
+  let id = 'CUST-' + String(n).padStart(3,'0');
+  while(DB.customers.some(c=>c.id===id)){ n++; id = 'CUST-' + String(n).padStart(3,'0'); }
+  return id;
+}
 function saveCustomerModal(customerId){
   const name = document.getElementById('cm-name').value.trim();
   if(!name){ toast('Enter a customer name'); return; }
+  const newId = document.getElementById('cm-id').value.trim();
+  if(!newId){ toast('Enter a customer ID'); return; }
+  if(DB.customers.some(c=>c.id===newId && c.id!==customerId)){ toast('That customer ID is already in use'); return; }
   const data = {
     name,
     type: document.getElementById('cm-type').value,
@@ -805,10 +815,13 @@ function saveCustomerModal(customerId){
   if(customerId){
     const c = DB.customers.find(x=>x.id===customerId);
     Object.assign(c, data);
+    if(newId !== customerId){
+      c.id = newId;
+      DB.sites.forEach(s=>{ if(s.customerId===customerId) s.customerId = newId; });
+      DB.lifts.forEach(l=>{ if(l.customerId===customerId) l.customerId = newId; });
+    }
   } else {
-    DB.counters.customer = (DB.counters.customer||0) + 1;
-    const id = 'CUST-' + String(DB.counters.customer).padStart(3,'0');
-    DB.customers.push(Object.assign({id}, data));
+    DB.customers.push(Object.assign({id:newId}, data));
   }
   saveDB();
   closeModal();
