@@ -2023,6 +2023,13 @@ function renderDashboard(){
     <div id="dashList"></div>
 
     <div class="panel" style="margin-top:18px;">
+      <h2>Job numbering</h2>
+      <div class="desc">Job IDs and job card numbers auto-generate as JOB-XXX / JC-XXX from this counter. Reset it once trial jobs are done so real numbering starts clean.</div>
+      <div class="legend" style="margin-bottom:10px;">Next job will be: <strong>JOB-${String((DB.counters.job||0)+1).padStart(3,'0')}</strong></div>
+      <button class="btn secondary" onclick="resetJobCounter()">Reset job numbering</button>
+    </div>
+
+    <div class="panel" style="margin-top:18px;">
       <h2>Team &amp; login PINs</h2>
       <div class="desc">Names here appear on the login screen. PIN is optional — it's a courtesy check, not real security, since this app has no server. Leave blank for no PIN.</div>
       <div id="teamList"></div>
@@ -2037,6 +2044,17 @@ function renderDashboard(){
   `;
   renderDashboardList();
   renderTeamList();
+}
+function resetJobCounter(){
+  const current = DB.counters.job || 0;
+  const input = prompt('Next job will be numbered starting from this value + 1.\nEnter 0 to make the next job JOB-001 (recommended once trial jobs are done):', '0');
+  if(input===null) return;
+  const n = parseInt(input, 10);
+  if(isNaN(n) || n < 0){ toast('Enter a valid number (0 or higher)'); return; }
+  DB.counters.job = n;
+  saveDB();
+  toast('Job numbering reset — next job will be JOB-' + String(n+1).padStart(3,'0'));
+  renderDashboard();
 }
 function renderTeamList(){
   const el = document.getElementById('teamList');
