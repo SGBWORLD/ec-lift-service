@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ec-lift-shell-v17';
+const CACHE_NAME = 'ec-lift-shell-v19';
 const SHELL_FILES = [
   './EC_Lift_Service_App.html',
   './manifest.json',
