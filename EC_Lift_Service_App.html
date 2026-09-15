@@ -1388,7 +1388,10 @@ function renderDetailsTab(j, body){
       <label>Rectification &amp; remarks</label>
       <textarea id="d-rect">${esc(j.rectification)}</textarea>
       <label>Final status</label>
-      <input id="d-finalstatus" type="text" value="${esc(j.finalStatus)}" placeholder="e.g. Handed over in working condition">
+      <select id="d-finalstatus">
+        <option value="">Not set</option>
+        ${['Handed over in working condition','Running under observation for fault analysis','Shutdown for repair'].map(s=>`<option ${j.finalStatus===s?'selected':''}>${s}</option>`).join('')}
+      </select>
       <div class="grid-2">
         <div><label>Total charge (BD)</label><input id="d-charge" type="text" value="${esc(j.charge)}" placeholder="0.000"></div>
         <div><label>Payment method</label><select id="d-pay">${['Cash','Cheque','Not applicable'].map(p=>`<option ${j.paymentMethod===p?'selected':''}>${p}</option>`).join('')}</select></div>
@@ -1471,7 +1474,7 @@ function saveDetails(){
   j.arrivalStatus = document.getElementById('d-arrival').value;
   j.breakdownReason = document.getElementById('d-reason').value.trim();
   j.rectification = document.getElementById('d-rect').value.trim();
-  j.finalStatus = document.getElementById('d-finalstatus').value.trim();
+  j.finalStatus = document.getElementById('d-finalstatus').value;
   j.charge = document.getElementById('d-charge').value.trim();
   j.paymentMethod = document.getElementById('d-pay').value;
   j.notes = document.getElementById('d-notes').value.trim();
