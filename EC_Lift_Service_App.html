@@ -320,21 +320,20 @@ function syncToSheet(job){
         charge: job.charge, paymentMethod: job.paymentMethod,
         checklistProgress: answered+'/'+total, attentionItems: attention,
         parts: (job.parts||[]).map(p=>(p.no||'')+' '+(p.desc||'')+' x'+(p.qty||'1')).join('; '),
-        partsList: (job.parts||[]).map(p=>({no:p.no||'', desc:p.desc||'', qty:p.qty||'1'}))
+        partsList: (job.parts||[]).map(p=>({no:p.no||'', desc:p.desc||'', qty:p.qty||'1', hasPhoto: p.photoId ? 'Yes' : 'No'}))
       })
     }).catch(()=>{});
   }catch(e){ /* Sheet sync is best-effort — never block saving the job itself */ }
 }
 function syncPhotoToSheet(jobId, photo){
   if(!SHEET_WEBHOOK_URL || SHEET_WEBHOOK_URL.indexOf('YOUR_') === 0) return;
-  try{
-    fetch(SHEET_WEBHOOK_URL, {
-      method: 'POST',
-      mode: 'no-cors',
-      headers: {'Content-Type':'text/plain'},
-      body: JSON.stringify({ kind:'photo', jobId, photoId: photo.id, caption: photo.caption||'', dataUrl: photo.data })
-    }).catch(()=>{});
-  }catch(e){ /* best-effort */ }
+  fetch(SHEET_WEBHOOK_URL, {
+    method: 'POST',
+    headers: {'Content-Type':'text/plain'},
+    body: JSON.stringify({ kind:'photo', jobId, photoId: photo.id, caption: photo.caption||'', dataUrl: photo.data })
+  }).then(res=>res.json()).then(data=>{
+    if(!data || !data.ok){ console.error('Sheet photo sync failed:', data && data.error); toast('Photo saved, but Sheet sync failed — check Apps Script logs'); }
+  }).catch(e=>{ console.error('Sheet photo sync error:', e); });
 }
 
 /* ---------- Firebase (cloud sync) ----------
@@ -888,6 +887,17 @@ function renderCustomersView_list(){
     (c.contactPerson||'').toLowerCase().includes(q));
 
   const rows = list.map(c=>{
+    const sites = DB.sites.filter(s=>s.customerId===c.id);
+    const sitesHtml = sites.length ? sites.map(s=>`
+      <div class="lift-chip-row" style="display:flex;align-items:center;justify-content:space-between;">
+        <span>${esc(s.id)} — ${esc(s.name)}${s.address?' · '+esc(s.address):''}</span>
+        <span style="display:flex;gap:6px;flex-shrink:0;">
+          <button class="btn secondary" style="padding:3px 8px;font-size:10px;" onclick='openSiteModal("${esc(s.id)}", "${esc(c.id)}", renderCustomersView_list)'>Edit</button>
+          <button class="btn danger" style="padding:3px 8px;font-size:10px;" onclick="removeSite('${esc(s.id)}')">Remove</button>
+        </span>
+      </div>`).join('')
+      : '<div class="empty" style="padding:6px 0;">No sites yet.</div>';
+
     const lifts = DB.lifts.filter(l=>l.customerId===c.id);
     const liftsHtml = lifts.length ? lifts.map(l=>`
       <div class="lift-chip-row">
@@ -917,6 +927,10 @@ function renderCustomersView_list(){
         <div><span class="k">Next service due</span><span class="v">${(()=>{ const nd=nextServiceDueApprox(c); if(!nd) return '—'; const du=daysUntil(nd); const label = fmtDate(nd) + (c.nextServiceDue?'':' (approx)'); const flag = du<0 ? '<span style="color:var(--red);font-weight:600;"> · OVERDUE</span>' : (du<=7 ? '<span style="color:var(--yellow-d);font-weight:600;"> · in '+du+' day'+(du===1?'':'s')+'</span>' : ''); return label+flag; })()}</span></div>
       </div>
       <div style="margin-top:10px;">
+        <div class="legend" style="margin-bottom:6px;">${sites.length} site${sites.length===1?'':'s'} registered</div>
+        ${sitesHtml}
+      </div>
+      <div style="margin-top:10px;">
         <div class="legend" style="margin-bottom:6px;">${lifts.length} lift${lifts.length===1?'':'s'} registered</div>
         ${liftsHtml}
       </div>
@@ -931,17 +945,80 @@ function renderCustomersView_list(){
 function quickAddSite(){
   const custId = document.getElementById('newLiftCust').value;
   if(!custId){ toast('Select a customer first'); return; }
-  const name = prompt('Site / building name:');
-  if(!name || !name.trim()) return;
-  const address = prompt('Site address:') || '';
-  DB.counters.site = (DB.counters.site||0) + 1;
-  const id = 'SITE-' + String(DB.counters.site).padStart(3,'0');
-  DB.sites.push({id, customerId:custId, name:name.trim(), address, status:'Active'});
+  openSiteModal(null, custId, ()=>{ renderLifts(); onNewLiftCustChange(); });
+}
+function suggestNextSiteId(){
+  let n = (DB.sites||[]).length + 1;
+  let id = 'SITE-' + String(n).padStart(3,'0');
+  while(DB.sites.some(s=>s.id===id)){ n++; id = 'SITE-' + String(n).padStart(3,'0'); }
+  return id;
+}
+function openSiteModal(siteId, presetCustomerId, onSaved){
+  const s = siteId ? DB.sites.find(x=>x.id===siteId) : {
+    id:'', customerId:presetCustomerId||'', name:'', address:'', status:'Active'
+  };
+  const root = document.getElementById('modal-root');
+  root.classList.remove('hidden');
+  const custOpts = DB.customers.map(c=>`<option value="${esc(c.id)}" ${c.id===s.customerId?'selected':''}>${esc(c.name)}</option>`).join('');
+  root.innerHTML = `
+    <div class="modal-backdrop" onclick="if(event.target===this) closeModal()">
+      <div class="modal-card" style="max-width:440px;">
+        <h3 style="text-align:left;">${siteId ? 'Edit site' : 'New site'}</h3>
+        <div style="text-align:left;">
+          <label>Site ID</label><input id="sm-id" type="text" value="${esc(s.id || suggestNextSiteId())}">
+          <label style="margin-top:8px;">Customer</label>
+          <select id="sm-cust">${custOpts}</select>
+          <label style="margin-top:8px;">Site / building name</label><input id="sm-name" type="text" value="${esc(s.name)}">
+          <label style="margin-top:8px;">Address</label><input id="sm-address" type="text" value="${esc(s.address)}">
+          <label style="margin-top:8px;">Status</label>
+          <select id="sm-status">${['Active','Inactive'].map(st=>`<option ${s.status===st?'selected':''}>${st}</option>`).join('')}</select>
+        </div>
+        <div class="actions">
+          <button class="btn secondary" onclick="closeModal()">Cancel</button>
+          <button class="btn" onclick='saveSiteModal(${siteId?`"${siteId}"`:'null'})'>Save</button>
+        </div>
+      </div>
+    </div>`;
+  window._siteModalOnSaved = onSaved;
+}
+function saveSiteModal(siteId){
+  const name = document.getElementById('sm-name').value.trim();
+  if(!name){ toast('Enter a site name'); return; }
+  const newId = document.getElementById('sm-id').value.trim();
+  if(!newId){ toast('Enter a site ID'); return; }
+  if(DB.sites.some(s=>s.id===newId && s.id!==siteId)){ toast('That site ID is already in use'); return; }
+  const data = {
+    customerId: document.getElementById('sm-cust').value,
+    name,
+    address: document.getElementById('sm-address').value.trim(),
+    status: document.getElementById('sm-status').value
+  };
+  if(siteId){
+    const s = DB.sites.find(x=>x.id===siteId);
+    Object.assign(s, data);
+    if(newId !== siteId){
+      s.id = newId;
+      DB.lifts.forEach(l=>{ if(l.siteId===siteId) l.siteId = newId; });
+    }
+  } else {
+    DB.sites.push(Object.assign({id:newId}, data));
+  }
   saveDB();
-  syncMetaToSheet();
-  renderLifts();
-  onNewLiftCustChange();
-  toast('Site added — now select it for the new lift');
+  closeModal();
+  toast(siteId ? 'Site updated' : 'Site added');
+  if(window._siteModalOnSaved) window._siteModalOnSaved();
+  if(document.getElementById('customersFullList')) renderCustomersView_list();
+}
+function removeSite(siteId){
+  const usedByLifts = DB.lifts.filter(l=>l.siteId===siteId).length;
+  const msg = usedByLifts
+    ? `Remove this site? ${usedByLifts} lift(s) are linked to it — those lifts will need re-linking to a new site.`
+    : `Remove this site? This can't be undone.`;
+  if(!confirm(msg)) return;
+  DB.sites = DB.sites.filter(s=>s.id!==siteId);
+  saveDB();
+  if(document.getElementById('customersFullList')) renderCustomersView_list();
+  toast('Site removed');
 }
 function addLift(){
   const idEl = document.getElementById('newLiftId');
@@ -1287,7 +1364,8 @@ function onNewJobLiftChange(){
   document.getElementById('nj-addr').value = siteAddress(lift.siteId);
 }
 function pickType(chip){
-  document.querySelectorAll('#nj-type-row .chip').forEach(c=>c.classList.remove('on'));
+  const row = chip.closest('.chip-row');
+  row.querySelectorAll('.chip').forEach(c=>c.classList.remove('on'));
   chip.classList.add('on');
 }
 function createJob(){
@@ -1473,14 +1551,59 @@ function pickPriority(el){
 function renderPartsList(j){
   const el = document.getElementById('partsList');
   if(!el) return;
-  const rows = (j.parts||[]).map((p,i)=>`
+  const rows = (j.parts||[]).map((p,i)=>{
+    const photo = p.photoId ? j.photos.find(ph=>ph.id===p.photoId) : null;
+    return `
     <div class="row-card" style="padding:10px 12px;margin-bottom:6px;">
       <div class="row-top">
         <div class="row-title" style="font-size:13px;">${esc(p.no||'—')} · ${esc(p.desc||'')} <span class="row-id" style="display:inline;">× ${esc(p.qty||'1')}</span></div>
         <button class="btn danger" style="padding:4px 10px;font-size:11px;" onclick="removePart(${i})">Remove</button>
       </div>
-    </div>`).join('');
+      <div style="margin-top:8px;display:flex;align-items:center;gap:8px;">
+        ${photo ? `<img src="${photo.data}" style="width:52px;height:40px;object-fit:cover;border-radius:4px;border:1px solid var(--line);">` : ''}
+        <label class="btn secondary" style="display:inline-block;font-size:11px;padding:5px 10px;cursor:pointer;">
+          ${photo ? 'Replace photo' : '+ Add photo'}
+          <input type="file" accept="image/*" capture="environment" style="display:none;" onchange="attachPartPhoto(${i},event)">
+        </label>
+      </div>
+    </div>`;
+  }).join('');
   el.innerHTML = rows || '<div class="empty">No parts logged for this job yet.</div>';
+}
+function attachPartPhoto(idx, e){
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = function(){
+    const img = new Image();
+    img.onload = async function(){
+      const canvas = document.createElement('canvas');
+      const maxW = 900;
+      const scale = Math.min(1, maxW/img.width);
+      canvas.width = img.width*scale; canvas.height = img.height*scale;
+      canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+      const j = getJob();
+      const p = j.parts[idx];
+      const photo = {id:'PH-'+Date.now().toString(36)+Math.random().toString(36).slice(2,6), data:dataUrl, caption:'Part: '+(p.no||p.desc||'')};
+      if(FB_READY){
+        try{
+          await fbDb.collection('jobs').doc(j.jobId).collection('photos').doc(photo.id).set(photo);
+          j.photos.push(photo);
+        }catch(err){ toast('Could not upload photo. Check connection and try again.'); return; }
+      }else{
+        j.photos.push(photo);
+      }
+      p.photoId = photo.id;
+      syncPhotoToSheet(j.jobId, photo);
+      saveDB();
+      renderPartsList(j);
+      toast('Photo attached');
+    };
+    img.src = reader.result;
+  };
+  reader.readAsDataURL(file);
+  e.target.value = '';
 }
 function addPart(){
   const no = document.getElementById('p-no').value.trim();
@@ -1489,7 +1612,7 @@ function addPart(){
   if(!no && !desc){ toast('Enter a part number or description'); return; }
   const j = getJob();
   j.parts = j.parts || [];
-  j.parts.push({no, desc, qty});
+  j.parts.push({no, desc, qty, photoId:''});
   saveDB();
   document.getElementById('p-no').value=''; document.getElementById('p-desc').value=''; document.getElementById('p-qty').value='';
   renderPartsList(j);
@@ -2044,7 +2167,7 @@ function buildPDFDoc(j){
   // ---- Parts used ----
   if(j.parts && j.parts.length){
     sectionBar('PARTS USED');
-    const cols = [ {h:'Part No.', w:110}, {h:'Description', w:pw-2*margin-110-70}, {h:'Qty', w:70} ];
+    const cols = [ {h:'Part No.', w:90}, {h:'Description', w:pw-2*margin-90-60-70}, {h:'Qty', w:60}, {h:'Photo', w:70} ];
     checkPage(18);
     let cx = margin;
     doc.setFillColor(...LGREY); doc.rect(margin, y, pw-2*margin, 16, 'F');
@@ -2053,14 +2176,17 @@ function buildPDFDoc(j){
     cols.forEach(c=>{ doc.text(c.h, cx+5, y+11); cx += c.w; });
     y += 16;
     j.parts.forEach(p=>{
-      checkPage(15);
+      const photo = p.photoId ? j.photos.find(ph=>ph.id===p.photoId) : null;
+      const rowH = photo ? 40 : 15;
+      checkPage(rowH);
       cx = margin;
-      doc.rect(margin, y, pw-2*margin, 15, 'D');
+      doc.rect(margin, y, pw-2*margin, rowH, 'D');
       doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(20,20,20);
       doc.text(p.no||'—', cx+5, y+10.5); cx += cols[0].w;
       doc.text(p.desc||'—', cx+5, y+10.5, {maxWidth:cols[1].w-8}); cx += cols[1].w;
-      doc.text(String(p.qty||'1'), cx+5, y+10.5);
-      y += 15;
+      doc.text(String(p.qty||'1'), cx+5, y+10.5); cx += cols[2].w;
+      if(photo){ try{ doc.addImage(photo.data, 'JPEG', cx+4, y+3, 56, 34); }catch(e){} }
+      y += rowH;
     });
     y += 10;
   }
