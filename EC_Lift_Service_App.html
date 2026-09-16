@@ -501,7 +501,7 @@ function mkJob(overrides){
     customerName:'', customerPhone:'', customerEmail:'', callAttendedBy:'', address:'', timeIn:'', timeOut:'',
     type:'Repair', arrivalStatus:'', breakdownReason:'', rectification:'',
     notes:'', charge:'', paymentMethod:'Cash',
-    priority:'Medium', finalStatus:'', whatsappStatus:'Pending', parts:[],
+    priority:'Medium', finalStatus:'', whatsappStatus:'Pending', parts:[], reportUrl:'',
     checklist, photos:[], sig:{tech:null, techName:'', cust:null, custName:''}
   }, overrides);
 }
@@ -1564,6 +1564,12 @@ function renderChecklistTab(j, body){
     return `<div class="check-col"><h3>${esc(sec)}</h3>${rows}</div>`;
   }).join('');
   body.innerHTML = `
+    ${j.status==='Open' ? `
+    <div class="panel" style="border:1.5px solid var(--yellow);background:var(--amber-bg);">
+      <h2 style="margin-top:0;">Start service first</h2>
+      <div class="desc">Starting the service records the time in and moves this job to "In Progress" on the office Dashboard.</div>
+      <button class="btn full" onclick="startService()">Start service</button>
+    </div>` : ''}
     <div class="panel">
       <div class="check-progress">${answered} / ${total} items answered${attnIncomplete?` · ${attnIncomplete} attention item${attnIncomplete===1?'':'s'} missing photo/description`:''}</div>
       <div class="check-cols">${cols}</div>
@@ -1818,7 +1824,7 @@ function renderReportTab(j, body){
   body.innerHTML = `
     <div class="panel">
       <h2>Complete &amp; send report</h2>
-      <div class="legend">${stageLabel} · Checklist: ${v.answered}/${v.total} answered · Photos: ${j.photos.length} attached · Signatures: ${(j.sig.tech?1:0)+(j.sig.cust?1:0)}/2 collected · WhatsApp: ${esc(j.whatsappStatus||'Pending')}</div>
+      <div class="legend">${stageLabel} · Checklist: ${v.answered}/${v.total} answered · Photos: ${j.photos.length} attached · Signatures: ${(j.sig.tech?1:0)+(j.sig.cust?1:0)}/2 collected · WhatsApp: ${esc(j.whatsappStatus||'Pending')}${['Report Generated','Customer Acknowledged'].includes(j.status) ? ' · Report link: '+(j.reportUrl?'ready':'uploading…') : ''}</div>
       ${actionsHtml}
       <div id="sendNote" class="scan-status" style="margin-top:10px;"></div>
     </div>
@@ -1861,6 +1867,7 @@ async function generateReport(){
   const j = getJob();
   const doc = buildPDFDoc(j);
   j.status = 'Report Generated';
+  uploadReportToDrive(j, doc); // fire-and-forget; fills j.reportUrl for the WhatsApp message once ready
   saveDB();
   const filename = (j.jobId||'service-report') + '.pdf';
   const note = document.getElementById('sendNote');
@@ -1876,6 +1883,22 @@ async function generateReport(){
   doc.save(filename);
   renderJobDetail();
 }
+async function uploadReportToDrive(job, doc){
+  if(!SHEET_WEBHOOK_URL || SHEET_WEBHOOK_URL.indexOf('YOUR_') === 0) return;
+  try{
+    const dataUrl = doc.output('datauristring');
+    const res = await fetch(SHEET_WEBHOOK_URL, {
+      method: 'POST',
+      headers: {'Content-Type':'text/plain'},
+      body: JSON.stringify({ kind:'report', jobId: job.jobId, dataUrl })
+    });
+    const data = await res.json();
+    if(data && data.ok && data.url){
+      const j = DB.jobs.find(x=>x.jobId===job.jobId);
+      if(j){ j.reportUrl = data.url; saveDB(j); if(document.getElementById('detail-body')) renderJobDetail(); }
+    }
+  }catch(e){ /* best-effort — WhatsApp message just won't include a link this time */ }
+}
 function downloadPDF(){
   const j = getJob();
   const doc = buildPDFDoc(j);
@@ -1886,7 +1909,9 @@ function sendWhatsApp(){
   const j = getJob();
   const digits = (j.customerPhone||'').replace(/[^0-9]/g,'');
   if(!digits){ toast('Add a customer phone number first'); return; }
-  const msg = `Dear ${j.customerName||'Customer'}, Your EC Lift Service Report is ready. Job No: ${j.jobId} | Lift: ${j.liftId} | Date: ${fmtDate(j.date)} — PDF attached below. Emirates Contracting.`;
+  const msg = j.reportUrl
+    ? `Dear ${j.customerName||'Customer'}, Your EC Lift Service Report is ready. Job No: ${j.jobId} | Lift ID: ${j.liftId} | Date: ${fmtDate(j.date)} | View Report: ${j.reportUrl}`
+    : `Dear ${j.customerName||'Customer'}, Your EC Lift Service Report is ready. Job No: ${j.jobId} | Lift: ${j.liftId} | Date: ${fmtDate(j.date)} — PDF attached below. Emirates Contracting.`;
   window.open(`https://wa.me/${digits}?text=${encodeURIComponent(msg)}`, '_blank');
 }
 function markWhatsAppSent(){
@@ -1971,11 +1996,12 @@ function buildPDFDoc(j){
   }
 
   // ---- Header ----
-  doc.addImage(ECC_LOGO_BASE64, 'PNG', pw/2-95, y, 190, 41);
-  const headerTextY = y + 41 + 12;
+  doc.addImage(ECC_LOGO_BASE64, 'PNG', pw/2-120, y, 240, 51.7);
+  const headerTextY = y + 51.7 + 6;
   doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(30,30,30);
-  doc.text('P.O. Box 256, Kingdom of Bahrain  ·  Tel: +973 1616 1600  ·  info@sgbworld.com', pw/2, headerTextY, {align:'center'});
-  const ruleY = headerTextY + 10;
+  doc.text('P.O. Box 256, Kingdom of Bahrain', pw/2, headerTextY, {align:'center'});
+  doc.text('Tel: +973 1616 1600  ·  Email: info@sgbworld.com', pw/2, headerTextY+11, {align:'center'});
+  const ruleY = headerTextY + 21;
   doc.setDrawColor(...MAROON); doc.setLineWidth(1.1);
   doc.line(margin, ruleY, pw-margin, ruleY);
   doc.setLineWidth(0.5);
