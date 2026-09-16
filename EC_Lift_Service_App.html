@@ -228,6 +228,7 @@ canvas.sig-pad{width:100%;height:150px;display:block;touch-action:none;cursor:cr
   </div>
   <div class="nav" id="mainNav">
     <button data-view="scan" class="active">Scan QR</button>
+    <button data-view="jobdue">Job Due</button>
     <button data-view="lifts">Lifts</button>
     <button data-view="jobs">Jobs</button>
     <button data-view="newjob">New job</button>
@@ -243,6 +244,7 @@ canvas.sig-pad{width:100%;height:150px;display:block;touch-action:none;cursor:cr
   <div class="view hidden" id="view-jobdetail"></div>
   <div class="view hidden" id="view-dashboard"></div>
   <div class="view hidden" id="view-customers"></div>
+  <div class="view hidden" id="view-jobdue"></div>
   <div class="view hidden" id="modal-root"></div>
 
   <div class="footer-note">Data is stored for this app link and shared across everyone using it — no account, no cost.</div>
@@ -421,6 +423,7 @@ function softRerender(){
   else if(name === 'jobs') renderJobs();
   else if(name === 'dashboard') renderDashboard();
   else if(name === 'customers') renderCustomersView();
+  else if(name === 'jobdue') renderJobDue();
 }
 async function saveDB(job){
   const jobToSave = job || (currentJobId ? DB.jobs.find(x=>x.jobId===currentJobId) : null);
@@ -644,7 +647,7 @@ function setRole(role){
   document.getElementById('role-office').classList.toggle('on', role==='office');
   document.querySelectorAll('#mainNav button').forEach(b=>{
     const v = b.dataset.view;
-    const techOnly = (v==='scan' || v==='newjob');
+    const techOnly = (v==='scan' || v==='newjob' || v==='jobdue');
     const officeOnly = (v==='dashboard' || v==='customers');
     b.classList.toggle('hidden', role==='tech' ? officeOnly : techOnly);
   });
@@ -656,7 +659,7 @@ document.querySelectorAll('.nav button').forEach(b=>{
 function switchView(name){
   stopScanner();
   document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active', b.dataset.view===name));
-  ['scan','lifts','jobs','newjob','jobdetail','dashboard','customers'].forEach(v=>{
+  ['scan','lifts','jobs','newjob','jobdetail','dashboard','customers','jobdue'].forEach(v=>{
     document.getElementById('view-'+v).classList.toggle('hidden', v!==name);
   });
   if(name==='scan') renderScan();
@@ -665,6 +668,40 @@ function switchView(name){
   if(name==='newjob') renderNewJob();
   if(name==='dashboard') renderDashboard();
   if(name==='customers') renderCustomersView();
+  if(name==='jobdue') renderJobDue();
+}
+
+/* ---------- JOB DUE (technician-assigned upcoming visits) ---------- */
+function renderJobDue(){
+  const el = document.getElementById('view-jobdue');
+  const assigned = DB.customers.filter(c=>c.assignedTechnician===TECH_NAME).map(c=>{
+    const due = nextServiceDueApprox(c);
+    const du = due ? daysUntil(due) : null;
+    return { c, due, du };
+  }).sort((a,b)=>(a.du??999)-(b.du??999));
+
+  const rows = assigned.length ? assigned.map(({c,due,du})=>{
+    const lifts = DB.lifts.filter(l=>l.customerId===c.id);
+    const liftsHtml = lifts.length ? lifts.map(l=>`
+      <button class="btn secondary" style="margin:4px 6px 0 0;font-size:12px;padding:6px 12px;" onclick="goToLiftJob('${esc(l.id)}')">Start ${esc(l.id)}</button>
+    `).join('') : '<div class="empty" style="padding:6px 0;">No lifts linked to this customer yet — ask Back Office.</div>';
+    return `<div class="row-card" style="margin-bottom:12px;">
+      <div class="row-top">
+        <div>
+          <div class="row-title">${esc(c.name)}</div>
+          <div class="row-id">${esc(c.address||'')}</div>
+        </div>
+        ${du!==null ? `<span class="badge ${du<0?'inactive':(du<=2?'pending':'active')}">${du<0?'Overdue':du===0?'Due today':'in '+du+' day'+(du===1?'':'s')}</span>` : ''}
+      </div>
+      ${due ? `<div class="row-meta">Due ${fmtDate(due)}${c.maintenanceFrequency?' · '+esc(c.maintenanceFrequency):''}</div>` : ''}
+      <div style="margin-top:8px;">${liftsHtml}</div>
+    </div>`;
+  }).join('') : '<div class="empty"><div class="big">Nothing assigned to you right now</div>Back Office assigns upcoming services from the Dashboard.</div>';
+
+  el.innerHTML = `
+    <div class="section-head"><h1>Job due</h1><span class="count">${assigned.length} assigned</span></div>
+    ${rows}
+  `;
 }
 
 /* ---------- LIFTS view ---------- */
@@ -1094,7 +1131,16 @@ function saveLiftLink(liftId){
   toast('Lift link updated');
 }
 function filterJobsByLift(liftId){
-  window._jobFilter = liftId;
+  window._jobFilter = { label: liftId, test: j=>j.liftId===liftId };
+  switchView('jobs');
+}
+function filterJobsByStatusGroup(label, statuses){
+  window._jobFilter = { label, test: j=>statuses.includes(j.status) };
+  switchView('jobs');
+}
+function filterJobsThisMonth(){
+  const now = new Date();
+  window._jobFilter = { label:'This month', test: j=>{ const d=new Date(j.date); return d.getFullYear()===now.getFullYear() && d.getMonth()===now.getMonth(); } };
   switchView('jobs');
 }
 function viewLiftQR(liftId){
@@ -1271,6 +1317,11 @@ function manualPickGo(){
   goToLiftJob(liftId);
 }
 function goToLiftJob(liftId){
+  const liftForAssignment = DB.lifts.find(l=>l.id===liftId);
+  if(liftForAssignment){
+    const c = DB.customers.find(x=>x.id===liftForAssignment.customerId);
+    if(c && c.assignedTechnician){ c.assignedTechnician = ''; }
+  }
   const existing = DB.jobs.find(j=>j.liftId===liftId && ['Open','In Progress'].includes(j.status));
   if(existing){
     existing.technician = existing.technician || TECH_NAME;
@@ -1301,8 +1352,8 @@ function goToLiftJob(liftId){
 /* ---------- JOBS view ---------- */
 function renderJobs(){
   const el = document.getElementById('view-jobs');
-  const filter = window._jobFilter || '';
-  const list = filter ? DB.jobs.filter(j=>j.liftId===filter) : DB.jobs;
+  const filter = window._jobFilter;
+  const list = filter ? DB.jobs.filter(filter.test) : DB.jobs;
   const sorted = [...list].sort((a,b)=> (b.date||'').localeCompare(a.date||''));
   const rows = sorted.map(j=>`
     <div class="row-card" onclick="openJob('${esc(j.jobId)}')">
@@ -1314,7 +1365,7 @@ function renderJobs(){
     </div>`).join('');
   el.innerHTML = `
     <div class="section-head">
-      <h1>Jobs${filter?` — ${esc(filter)}`:''}</h1>
+      <h1>Jobs${filter?` — ${esc(filter.label)}`:''}</h1>
       <span class="count">${list.length} job${list.length===1?'':'s'} ${filter?'<a href="#" onclick="clearJobFilter(event)" style="margin-left:8px;color:var(--steel);">clear filter</a>':''}</span>
     </div>
     ${rows || '<div class="empty"><div class="big">No jobs yet</div>Create one from the New job tab.</div>'}
@@ -2298,6 +2349,13 @@ function renderDashboard(){
         <span class="badge ${du===0?'inactive':(du<=2?'pending':'active')}">${du===0?'Due today':'in '+du+' day'+(du===1?'':'s')}</span>
       </div>
       <div class="row-meta">${fmtDate(due)} · ${esc(c.maintenanceFrequency||'')}</div>
+      <div style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <select onchange="assignTechnician('${esc(c.id)}', this.value)" style="width:auto;font-size:12px;padding:5px 8px;">
+          <option value="">Assign technician…</option>
+          ${DB.technicians.map(t=>`<option value="${esc(t.name)}" ${c.assignedTechnician===t.name?'selected':''}>${esc(t.name)}</option>`).join('')}
+        </select>
+        ${c.assignedTechnician ? `<span class="legend" style="margin:0;">Assigned to ${esc(c.assignedTechnician)}</span>` : ''}
+      </div>
     </div>`;
   }).join('') : '<div class="empty">Nothing due in the next 7 days.</div>';
 
@@ -2311,11 +2369,11 @@ function renderDashboard(){
     </div>
 
     <div class="stat-grid">
-      <div class="stat-card"><div class="num">${DB.lifts.length}</div><div class="lbl">Lifts registered</div></div>
-      <div class="stat-card"><div class="num">${jobs.length}</div><div class="lbl">Total jobs</div></div>
-      <div class="stat-card"><div class="num">${pending.length+inprog.length}</div><div class="lbl">Open jobs</div></div>
-      <div class="stat-card"><div class="num">${completed.length}</div><div class="lbl">Completed</div></div>
-      <div class="stat-card"><div class="num">${thisMonth.length}</div><div class="lbl">Jobs this month</div></div>
+      <div class="stat-card" style="cursor:pointer;" onclick="switchView('lifts')"><div class="num">${DB.lifts.length}</div><div class="lbl">Lifts registered</div></div>
+      <div class="stat-card" style="cursor:pointer;" onclick="window._jobFilter=null; switchView('jobs')"><div class="num">${jobs.length}</div><div class="lbl">Total jobs</div></div>
+      <div class="stat-card" style="cursor:pointer;" onclick="filterJobsByStatusGroup('Open', ['Open','In Progress'])"><div class="num">${pending.length+inprog.length}</div><div class="lbl">Open jobs</div></div>
+      <div class="stat-card" style="cursor:pointer;" onclick="filterJobsByStatusGroup('Completed', ['Completed','Report Generated','Customer Acknowledged'])"><div class="num">${completed.length}</div><div class="lbl">Completed</div></div>
+      <div class="stat-card" style="cursor:pointer;" onclick="filterJobsThisMonth()"><div class="num">${thisMonth.length}</div><div class="lbl">Jobs this month</div></div>
     </div>
     <div class="search-row">
       <input id="dashSearch" type="text" placeholder="Search by lift, customer, technician, job ID" oninput="renderDashboardList()">
@@ -2362,6 +2420,14 @@ function toggleManualLiftOpen(val){
   DB.allowManualLiftOpen = val;
   saveDB();
   toast(val ? 'Manual lift entry enabled' : 'Manual lift entry disabled — technicians must scan');
+}
+function assignTechnician(customerId, techName){
+  const c = DB.customers.find(x=>x.id===customerId);
+  if(!c) return;
+  c.assignedTechnician = techName;
+  saveDB();
+  renderDashboard();
+  toast(techName ? 'Assigned to ' + techName : 'Assignment cleared');
 }
 function resetJobCounter(){
   const current = DB.counters.job || 0;
