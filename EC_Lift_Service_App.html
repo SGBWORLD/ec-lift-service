@@ -1971,11 +1971,15 @@ function buildPDFDoc(j){
   }
 
   // ---- Header ----
-  doc.addImage(ECC_LOGO_BASE64, 'PNG', pw/2-75, y, 150, 32.3);
-  const headerTextY = y + 32.3 + 12;
+  doc.addImage(ECC_LOGO_BASE64, 'PNG', pw/2-95, y, 190, 41);
+  const headerTextY = y + 41 + 12;
   doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(30,30,30);
   doc.text('P.O. Box 256, Kingdom of Bahrain  ·  Tel: +973 1616 1600  ·  info@sgbworld.com', pw/2, headerTextY, {align:'center'});
-  y = headerTextY + 16;
+  const ruleY = headerTextY + 10;
+  doc.setDrawColor(...MAROON); doc.setLineWidth(1.1);
+  doc.line(margin, ruleY, pw-margin, ruleY);
+  doc.setLineWidth(0.5);
+  y = ruleY + 22;
   doc.setFont('helvetica','bold'); doc.setFontSize(15); doc.setTextColor(...MAROON);
   doc.text('LIFT MAINTENANCE SERVICE REPORT', pw/2, y, {align:'center'});
   y += 15;
