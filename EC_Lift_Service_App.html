@@ -2295,35 +2295,63 @@ function buildPDFDoc(j){
     y += ph_img + 22;
   }
 
-  // ---- Checklist (kept in our own grouped-by-section layout) ----
+  // ---- Checklist (kept in our own grouped-by-section layout, now paginates properly) ----
   sectionBar('MAINTENANCE CHECKLIST');
   y += 10;
   const sections = Object.entries(CHECKLIST_SECTIONS);
   const secColW = (pw-2*margin-20)/3;
-  let sectionStartY = y;
-  let maxYUsed = y;
-  sections.forEach(([sec, items], si)=>{
-    let sy = sectionStartY;
-    const sx = margin + si*(secColW+10);
-    doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(...MAROON);
-    doc.text(sec.toUpperCase(), sx, sy); sy += 10;
-    doc.setFont('helvetica','normal'); doc.setFontSize(7.3); doc.setTextColor(30,30,30);
-    items.forEach((label, idx)=>{
-      const it = j.checklist[sec][idx];
-      const tag = it.status ? '['+it.status+'] ' : '[ ] ';
-      doc.text(tag + label, sx, sy, {maxWidth: secColW});
-      sy += 9.3;
-      if(it.status==='Attention' && it.issue){
-        doc.setTextColor(180,40,40);
-        const lines = doc.splitTextToSize('  - ' + it.issue, secColW);
-        doc.text(lines, sx, sy);
-        sy += lines.length*8.5;
-        doc.setTextColor(30,30,30);
-      }
+  const CHECK_BOTTOM = 780;
+
+  function drawChecklistColumnHeaders(yy){
+    sections.forEach(([sec], si)=>{
+      const sx = margin + si*(secColW+10);
+      doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(...MAROON);
+      doc.text(sec.toUpperCase(), sx, yy);
     });
-    maxYUsed = Math.max(maxYUsed, sy);
-  });
-  y = maxYUsed + 16;
+  }
+  drawChecklistColumnHeaders(y);
+  let colY = sections.map(()=> y + 10);
+  let colIdx = sections.map(()=> 0);
+  let allDone = false;
+  while(!allDone){
+    allDone = true;
+    for(let si=0; si<sections.length; si++){
+      const [sec, items] = sections[si];
+      const sx = margin + si*(secColW+10);
+      while(colIdx[si] < items.length){
+        const idx = colIdx[si];
+        const label = items[idx];
+        const it = j.checklist[sec][idx];
+        const tag = it.status ? '['+it.status+'] ' : '[ ] ';
+        let issueLines = [];
+        if(it.status==='Attention' && it.issue){
+          issueLines = doc.splitTextToSize('  - ' + it.issue, secColW);
+        }
+        const neededH = 9.3 + issueLines.length*8.5;
+        if(colY[si] + neededH > CHECK_BOTTOM) break; // doesn't fit — resume this column on next page
+        doc.setFont('helvetica','normal'); doc.setFontSize(7.3); doc.setTextColor(30,30,30);
+        doc.text(tag + label, sx, colY[si], {maxWidth: secColW});
+        colY[si] += 9.3;
+        if(issueLines.length){
+          doc.setTextColor(180,40,40);
+          doc.text(issueLines, sx, colY[si]);
+          colY[si] += issueLines.length*8.5;
+          doc.setTextColor(30,30,30);
+        }
+        colIdx[si]++;
+      }
+      if(colIdx[si] < items.length) allDone = false;
+    }
+    if(!allDone){
+      doc.addPage();
+      y = 40;
+      sectionBar('MAINTENANCE CHECKLIST (continued)');
+      y += 10;
+      drawChecklistColumnHeaders(y);
+      colY = sections.map(()=> y + 10);
+    }
+  }
+  y = Math.max(...colY) + 16;
 
   // ---- Customer acceptance & signatures ----
   checkPage(90);
