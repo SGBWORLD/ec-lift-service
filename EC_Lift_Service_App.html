@@ -406,7 +406,9 @@ function initCloudSync(){
       const data = d.data();
       const existing = DB.jobs.find(j=>j.jobId===d.id);
       // keep any already-fetched photos cached locally, since job docs no longer store photos
-      return Object.assign(mkJob({}), data, { status: normalizeStatus(data.status), checklist: normalizeChecklist(data.checklist), photos: (existing && existing.photos) || [] });
+      const merged = Object.assign(mkJob({}), data, { status: normalizeStatus(data.status), checklist: normalizeChecklist(data.checklist), photos: (existing && existing.photos) || [] });
+      if((!merged.whatsappNumbers || !merged.whatsappNumbers.filter(Boolean).length) && merged.customerPhone) merged.whatsappNumbers = [merged.customerPhone];
+      return merged;
     });
     DB.jobs = jobs;
     softRerender();
@@ -501,7 +503,7 @@ function mkJob(overrides){
   Object.entries(CHECKLIST_SECTIONS).forEach(([sec, items])=>{ checklist[sec] = items.map(()=>({status:'', issue:'', photoId:''})); });
   return Object.assign({
     jobId:'', jobCardNo:'', liftId:'', customerId:'', siteId:'', date:'', technician:'', status:'Open',
-    customerName:'', customerPhone:'', customerEmail:'', callAttendedBy:'', address:'', timeIn:'', timeOut:'',
+    customerName:'', customerPhone:'', whatsappNumbers:[''], customerEmail:'', callAttendedBy:'', address:'', timeIn:'', timeOut:'',
     type:'Repair', arrivalStatus:'', breakdownReason:'', rectification:'',
     notes:'', charge:'', paymentMethod:'Cash',
     priority:'Medium', finalStatus:'', whatsappStatus:'Pending', parts:[], reportUrl:'',
@@ -1528,8 +1530,19 @@ function renderDetailsTab(j, body){
         <div><label>Call attended by</label><input id="d-attend" type="text" value="${esc(j.callAttendedBy)}"></div>
       </div>
       <div class="grid-2">
-        <div><label>Customer WhatsApp / phone</label><input id="d-custphone" type="text" value="${esc(j.customerPhone)}" placeholder="+973 XXXX XXXX"></div>
+        <div><label>Phone number</label><input id="d-custphone" type="text" value="${esc(j.customerPhone)}" placeholder="+973 XXXX XXXX"></div>
         <div><label>Customer email</label><input id="d-custemail" type="text" value="${esc(j.customerEmail)}" placeholder="name@company.com"></div>
+      </div>
+      <label>WhatsApp number(s)</label>
+      <div id="waNumbersList">
+        ${(j.whatsappNumbers && j.whatsappNumbers.length ? j.whatsappNumbers : ['']).map((num, i)=>`
+          <div class="grid-2" style="align-items:end;margin-bottom:8px;">
+            <input class="wa-number-input" type="text" value="${esc(num)}" placeholder="+973 XXXX XXXX">
+            <div style="display:flex;gap:8px;">
+              <button type="button" class="btn secondary" style="flex-shrink:0;" onclick="addWaNumberField()">+</button>
+              ${i>0 ? `<button type="button" class="btn danger" style="flex-shrink:0;" onclick="this.closest('.grid-2').remove()">Remove</button>` : ''}
+            </div>
+          </div>`).join('')}
       </div>
       <div class="grid-2">
         <div><label>Address</label><input id="d-addr" type="text" value="${esc(j.address)}"></div>
@@ -1677,10 +1690,26 @@ function removePart(idx){
   saveDB();
   renderPartsList(j);
 }
+function addWaNumberField(){
+  const list = document.getElementById('waNumbersList');
+  const row = document.createElement('div');
+  row.className = 'grid-2';
+  row.style.cssText = 'align-items:end;margin-bottom:8px;';
+  row.innerHTML = `
+    <input class="wa-number-input" type="text" value="" placeholder="+973 XXXX XXXX">
+    <div style="display:flex;gap:8px;">
+      <button type="button" class="btn secondary" style="flex-shrink:0;" onclick="addWaNumberField()">+</button>
+      <button type="button" class="btn danger" style="flex-shrink:0;" onclick="this.closest('.grid-2').remove()">Remove</button>
+    </div>`;
+  list.appendChild(row);
+  row.querySelector('.wa-number-input').focus();
+}
 function saveDetails(){
   const j = getJob();
   j.customerName = document.getElementById('d-cust').value.trim();
   j.customerPhone = document.getElementById('d-custphone').value.trim();
+  j.whatsappNumbers = Array.from(document.querySelectorAll('.wa-number-input')).map(el=>el.value.trim()).filter(Boolean);
+  if(!j.whatsappNumbers.length) j.whatsappNumbers = [''];
   j.customerEmail = document.getElementById('d-custemail').value.trim();
   j.callAttendedBy = document.getElementById('d-attend').value.trim();
   j.address = document.getElementById('d-addr').value.trim();
@@ -1962,7 +1991,8 @@ function clearSavedSig(which){
 /* -- report tab -- */
 function renderReportTab(j, body){
   const v = validateChecklist(j);
-  const hasContact = j.customerPhone || j.customerEmail;
+  const waNumbers = (j.whatsappNumbers||[]).filter(Boolean);
+  const hasContact = waNumbers.length || j.customerEmail;
   const stageLabel = { 'Open':'Job is open', 'In Progress':'Job is in progress', 'Completed':'Job marked completed', 'Report Generated':'Report generated', 'Customer Acknowledged':'Customer acknowledged — job closed' }[j.status] || j.status;
 
   let actionsHtml = '';
@@ -1992,7 +2022,7 @@ function renderReportTab(j, body){
       <div class="send-row">
         <button class="btn secondary" onclick="downloadPDF()"><i class="ti ti-download"></i> Download PDF again</button>
         <button class="btn secondary" onclick="regenerateReport()">Regenerate report</button>
-        <button class="btn secondary" ${j.customerPhone?'':'disabled'} onclick="sendWhatsApp()">Send WhatsApp message</button>
+        ${waNumbers.length ? waNumbers.map((num,i)=>`<button class="btn secondary" onclick="sendWhatsApp(${i})">Send WhatsApp${waNumbers.length>1?' ('+esc(num)+')':' message'}</button>`).join('') : `<button class="btn secondary" disabled>Send WhatsApp message</button>`}
         <button class="btn secondary" ${j.customerEmail?'':'disabled'} onclick="sendEmail()">Open Gmail draft</button>
       </div>
       <button class="btn ${j.whatsappStatus==='Sent'?'secondary':''} full" style="margin-top:10px;" onclick="markWhatsAppSent()" ${j.whatsappStatus==='Sent'?'disabled':''}>${j.whatsappStatus==='Sent' ? '✓ Marked as sent' : 'Mark WhatsApp sent'}</button>
@@ -2108,10 +2138,11 @@ function downloadPDF(){
   doc.save((j.jobId||'service-report') + '.pdf');
   toast('PDF downloaded');
 }
-function sendWhatsApp(){
+function sendWhatsApp(idx){
   const j = getJob();
-  const digits = (j.customerPhone||'').replace(/[^0-9]/g,'');
-  if(!digits){ toast('Add a customer phone number first'); return; }
+  const num = (j.whatsappNumbers||[])[idx||0] || '';
+  const digits = num.replace(/[^0-9]/g,'');
+  if(!digits){ toast('Add a WhatsApp number first'); return; }
   const msg = j.reportUrl
     ? `Dear ${j.customerName||'Customer'}, Your EC Lift Service Report is ready. Job No: ${j.jobId} | Lift ID: ${j.liftId} | Date: ${fmtDate(j.date)} | View Report: ${j.reportUrl}`
     : `Dear ${j.customerName||'Customer'}, Your EC Lift Service Report is ready. Job No: ${j.jobId} | Lift: ${j.liftId} | Date: ${fmtDate(j.date)} — PDF attached below. Emirates Contracting.`;
