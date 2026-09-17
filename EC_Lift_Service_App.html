@@ -1991,6 +1991,7 @@ function renderReportTab(j, body){
       ${!j.reportUrl ? `<div class="field-err" style="margin-bottom:10px;">No report link yet — <a href="#" onclick="retryReportLink();return false;" style="color:inherit;text-decoration:underline;">retry uploading to Drive</a></div>` : ''}
       <div class="send-row">
         <button class="btn secondary" onclick="downloadPDF()"><i class="ti ti-download"></i> Download PDF again</button>
+        <button class="btn secondary" onclick="regenerateReport()">Regenerate report</button>
         <button class="btn secondary" ${j.customerPhone?'':'disabled'} onclick="sendWhatsApp()">Send WhatsApp message</button>
         <button class="btn secondary" ${j.customerEmail?'':'disabled'} onclick="sendEmail()">Open email draft</button>
       </div>
@@ -2060,6 +2061,14 @@ async function generateReport(){
   doc.save(filename);
   renderJobDetail();
 }
+async function regenerateReport(){
+  const j = getJob();
+  toast('Regenerating report…');
+  const doc = buildPDFDoc(j);
+  await uploadReportToDrive(j, doc);
+  toast(getJob().reportUrl ? 'Report updated — same link, refreshed content' : 'Uploaded, but could not confirm the link — check again shortly');
+  renderJobDetail();
+}
 async function retryReportLink(){
   const j = getJob();
   toast('Retrying — this can take a few seconds');
@@ -2107,6 +2116,9 @@ function sendWhatsApp(){
     ? `Dear ${j.customerName||'Customer'}, Your EC Lift Service Report is ready. Job No: ${j.jobId} | Lift ID: ${j.liftId} | Date: ${fmtDate(j.date)} | View Report: ${j.reportUrl}`
     : `Dear ${j.customerName||'Customer'}, Your EC Lift Service Report is ready. Job No: ${j.jobId} | Lift: ${j.liftId} | Date: ${fmtDate(j.date)} — PDF attached below. Emirates Contracting.`;
   window.open(`https://wa.me/${digits}?text=${encodeURIComponent(msg)}`, '_blank');
+  j.whatsappStatus = 'Sent';
+  saveDB();
+  renderJobDetail();
 }
 function markWhatsAppSent(){
   const j = getJob();
