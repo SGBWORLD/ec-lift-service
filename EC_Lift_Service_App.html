@@ -1148,21 +1148,52 @@ function filterJobsThisMonth(){
   switchView('jobs');
 }
 function viewLiftQR(liftId){
+  const lift = DB.lifts.find(l=>l.id===liftId);
+  const cust = lift ? DB.customers.find(c=>c.id===lift.customerId) : null;
+  const qrText = [
+    'Lift ID: ' + liftId,
+    'Customer: ' + (cust ? cust.name : ''),
+    'Site: ' + (lift ? siteName(lift.siteId) : ''),
+    'Address: ' + (lift ? siteAddress(lift.siteId) : ''),
+    'Customer Type: ' + (cust ? cust.type : ''),
+    '',
+    'Emirates Contracting Bahrain',
+    'Emergency Contact: 1616 1600 & 3805 3765'
+  ].join('\n');
   const root = document.getElementById('modal-root');
   root.classList.remove('hidden');
   root.innerHTML = `
     <div class="modal-backdrop" onclick="if(event.target===this) closeModal()">
       <div class="modal-card">
         <h3>${esc(liftId)}</h3>
-        <div class="sub">Stick this at the lift. Scanning opens this lift directly.</div>
+        <div class="sub">Stick this at the lift. Scanning opens this lift directly — any camera can also read the details on it.</div>
         <div class="qr-box" id="qrTarget"></div>
-        <div class="actions">
+        <div class="actions" style="flex-wrap:wrap;">
           <button class="btn secondary" onclick="closeModal()">Close</button>
+          <button class="btn secondary" onclick="copyQR()">Copy QR image</button>
           <button class="btn" onclick="printQR('${esc(liftId)}')">Print</button>
         </div>
       </div>
     </div>`;
-  new QRCode(document.getElementById('qrTarget'), { text: 'ECLIFT:'+liftId, width:180, height:180, colorDark:'#1C2530', colorLight:'#ffffff' });
+  new QRCode(document.getElementById('qrTarget'), { text: qrText, width:180, height:180, colorDark:'#1C2530', colorLight:'#ffffff' });
+}
+async function copyQR(){
+  try{
+    const el = document.querySelector('#qrTarget img, #qrTarget canvas');
+    let blob;
+    if(el.tagName==='CANVAS'){
+      blob = await new Promise(resolve => el.toBlob(resolve));
+    } else {
+      const canvas = document.createElement('canvas');
+      canvas.width = el.naturalWidth || 180; canvas.height = el.naturalHeight || 180;
+      canvas.getContext('2d').drawImage(el, 0, 0, canvas.width, canvas.height);
+      blob = await new Promise(resolve => canvas.toBlob(resolve));
+    }
+    await navigator.clipboard.write([new ClipboardItem({'image/png': blob})]);
+    toast('QR image copied — paste it into your template');
+  }catch(e){
+    toast('Could not copy directly — long-press the QR image and choose "Copy image" instead');
+  }
 }
 function closeModal(){
   document.getElementById('modal-root').classList.add('hidden');
