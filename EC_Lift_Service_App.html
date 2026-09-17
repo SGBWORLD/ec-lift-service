@@ -1335,17 +1335,26 @@ function goToLiftJob(liftId){
       existing.siteId = lift.siteId;
       existing.customerName = custName(lift.customerId);
       existing.address = siteAddress(lift.siteId);
+      const c = DB.customers.find(x=>x.id===lift.customerId);
+      if(c){
+        existing.customerPhone = c.phone || '';
+        existing.customerEmail = c.email || '';
+        existing.whatsappNumbers = c.whatsapp ? [c.whatsapp] : [''];
+      }
     }
     saveDB(existing); openJob(existing.jobId); return;
   }
   const lift = DB.lifts.find(l=>l.id===liftId);
+  const cust = lift ? DB.customers.find(x=>x.id===lift.customerId) : null;
   DB.counters.job += 1;
   const jobId = 'JOB-' + String(DB.counters.job).padStart(3,'0');
   const jobCardNo = 'JC-' + String(DB.counters.job).padStart(3,'0');
   const job = mkJob({
     jobId, jobCardNo, liftId, date: new Date().toISOString().slice(0,10), technician: TECH_NAME, status:'Open', timeIn: new Date().toTimeString().slice(0,5),
     customerId: lift ? lift.customerId : '', siteId: lift ? lift.siteId : '',
-    customerName: lift ? custName(lift.customerId) : '', address: lift ? siteAddress(lift.siteId) : ''
+    customerName: lift ? custName(lift.customerId) : '', address: lift ? siteAddress(lift.siteId) : '',
+    customerPhone: cust ? (cust.phone||'') : '', customerEmail: cust ? (cust.email||'') : '',
+    whatsappNumbers: cust && cust.whatsapp ? [cust.whatsapp] : ['']
   });
   DB.jobs.push(job);
   saveDB(job);
@@ -1439,12 +1448,15 @@ function createJob(){
   const jobCardNo = 'JC-' + String(DB.counters.job).padStart(3,'0');
   const type = document.querySelector('#nj-type-row .chip.on')?.dataset.type || 'Repair';
   const lift = DB.lifts.find(l=>l.id===liftId);
+  const cust = lift ? DB.customers.find(x=>x.id===lift.customerId) : null;
   const job = mkJob({
     jobId, jobCardNo, liftId, date, technician:tech,
     customerId: lift ? lift.customerId : '', siteId: lift ? lift.siteId : '',
     callAttendedBy: document.getElementById('nj-attend').value.trim(),
     customerName: document.getElementById('nj-cust').value.trim(),
     address: document.getElementById('nj-addr').value.trim(),
+    customerPhone: cust ? (cust.phone||'') : '', customerEmail: cust ? (cust.email||'') : '',
+    whatsappNumbers: cust && cust.whatsapp ? [cust.whatsapp] : [''],
     timeIn: document.getElementById('nj-timein').value,
     timeOut: document.getElementById('nj-timeout').value,
     type, notes: document.getElementById('nj-notes').value.trim(),
