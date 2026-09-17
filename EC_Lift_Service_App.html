@@ -329,13 +329,14 @@ function syncToSheet(job){
 }
 function syncPhotoToSheet(jobId, photo){
   if(!SHEET_WEBHOOK_URL || SHEET_WEBHOOK_URL.indexOf('YOUR_') === 0) return;
-  fetch(SHEET_WEBHOOK_URL, {
-    method: 'POST',
-    headers: {'Content-Type':'text/plain'},
-    body: JSON.stringify({ kind:'photo', jobId, photoId: photo.id, caption: photo.caption||'', dataUrl: photo.data })
-  }).then(res=>res.json()).then(data=>{
-    if(!data || !data.ok){ console.error('Sheet photo sync failed:', data && data.error); toast('Photo saved, but Sheet sync failed — check Apps Script logs'); }
-  }).catch(e=>{ console.error('Sheet photo sync error:', e); });
+  try{
+    fetch(SHEET_WEBHOOK_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: {'Content-Type':'text/plain'},
+      body: JSON.stringify({ kind:'photo', jobId, photoId: photo.id, caption: photo.caption||'', dataUrl: photo.data })
+    }).catch(()=>{});
+  }catch(e){ /* best-effort */ }
 }
 
 /* ---------- Firebase (cloud sync) ----------
@@ -722,8 +723,9 @@ function renderLifts(){
       <div class="row-meta" onclick="filterJobsByLift('${esc(l.id)}')" style="cursor:pointer;">${jobs.length} job${jobs.length===1?'':'s'} on record${open?` · ${open} open`:''}</div>
       <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn secondary" onclick="event.stopPropagation();viewLiftQR('${esc(l.id)}')">View / print QR code</button>
+        ${ROLE==='office' ? `
         <button class="btn secondary" onclick="event.stopPropagation();editLiftLink('${esc(l.id)}')">Edit customer/site</button>
-        <button class="btn danger" onclick="event.stopPropagation();removeLift('${esc(l.id)}')">Remove</button>
+        <button class="btn danger" onclick="event.stopPropagation();removeLift('${esc(l.id)}')">Remove</button>` : ''}
       </div>
     </div>`;
   }).join('');
@@ -2061,17 +2063,26 @@ async function uploadReportToDrive(job, doc){
   if(!SHEET_WEBHOOK_URL || SHEET_WEBHOOK_URL.indexOf('YOUR_') === 0) return;
   try{
     const dataUrl = doc.output('datauristring');
-    const res = await fetch(SHEET_WEBHOOK_URL, {
+    await fetch(SHEET_WEBHOOK_URL, {
       method: 'POST',
+      mode: 'no-cors',
       headers: {'Content-Type':'text/plain'},
       body: JSON.stringify({ kind:'report', jobId: job.jobId, dataUrl })
     });
-    const data = await res.json();
-    if(data && data.ok && data.url){
-      const j = DB.jobs.find(x=>x.jobId===job.jobId);
-      if(j){ j.reportUrl = data.url; saveDB(j); if(document.getElementById('detail-body')) renderJobDetail(); }
-    }
-  }catch(e){ /* best-effort — WhatsApp message just won't include a link this time */ }
+  }catch(e){ return; }
+  // Drive upload happens server-side after the request above returns; poll a few times for the link.
+  for(const delay of [3000, 4000, 5000, 6000]){
+    await new Promise(r=>setTimeout(r, delay));
+    try{
+      const res = await fetch(`${SHEET_WEBHOOK_URL}?action=getReportUrl&jobId=${encodeURIComponent(job.jobId)}`);
+      const data = await res.json();
+      if(data && data.ok && data.url){
+        const j = DB.jobs.find(x=>x.jobId===job.jobId);
+        if(j){ j.reportUrl = data.url; saveDB(j); if(document.getElementById('detail-body')) renderJobDetail(); }
+        return;
+      }
+    }catch(e){ /* try again */ }
+  }
 }
 function downloadPDF(){
   const j = getJob();
