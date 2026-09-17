@@ -1988,6 +1988,7 @@ function renderReportTab(j, body){
     // Report Generated or Customer Acknowledged
     actionsHtml = `
       <div class="desc">Report already generated. Send it, then confirm once it's actually delivered.</div>
+      ${!j.reportUrl ? `<div class="field-err" style="margin-bottom:10px;">No report link yet — <a href="#" onclick="retryReportLink();return false;" style="color:inherit;text-decoration:underline;">retry uploading to Drive</a></div>` : ''}
       <div class="send-row">
         <button class="btn secondary" onclick="downloadPDF()"><i class="ti ti-download"></i> Download PDF again</button>
         <button class="btn secondary" ${j.customerPhone?'':'disabled'} onclick="sendWhatsApp()">Send WhatsApp message</button>
@@ -2058,6 +2059,14 @@ async function generateReport(){
   }catch(e){ /* user cancelled share or unsupported — fall through to download */ }
   doc.save(filename);
   renderJobDetail();
+}
+async function retryReportLink(){
+  const j = getJob();
+  toast('Retrying — this can take a few seconds');
+  const doc = buildPDFDoc(j);
+  await uploadReportToDrive(j, doc);
+  if(getJob().reportUrl) toast('Report link ready');
+  else toast('Still could not get a link — check Apps Script Executions log');
 }
 async function uploadReportToDrive(job, doc){
   if(!SHEET_WEBHOOK_URL || SHEET_WEBHOOK_URL.indexOf('YOUR_') === 0) return;
