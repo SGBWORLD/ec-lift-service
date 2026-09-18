@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Emirates Contracting — Lift Service</title>
+<title>Emirates Contracting Bahrain — Lift Service</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -33,10 +33,10 @@ body{margin:0;font-family:'IBM Plex Sans',sans-serif;background:var(--paper);col
 .topbar{background:var(--navy);color:#fff;padding:14px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;}
 .brand{display:flex;align-items:center;gap:10px;}
 .brand-mark{width:34px;height:34px;border:2px solid var(--yellow);border-radius:4px;display:flex;align-items:center;justify-content:center;font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:13px;color:var(--yellow);flex-shrink:0;}
-.brand-logo-box{background:#fff;border-radius:6px;padding:6px 10px;display:flex;align-items:center;flex-shrink:0;}
-.brand-logo-box img{display:block;height:26px;width:auto;}
-.login-logo-box{background:#fff;border-radius:8px;padding:10px 16px;display:inline-flex;align-items:center;margin:0 auto 14px;}
-.login-logo-box img{display:block;height:34px;width:auto;}
+.brand-logo-box{background:#fff;border-radius:6px;padding:6px 12px;display:flex;align-items:center;flex-shrink:0;}
+.brand-logo-box img{display:block;height:38px;width:auto;}
+.login-logo-box{background:#fff;border-radius:8px;padding:10px 16px;display:flex;align-items:center;justify-content:center;width:fit-content;margin:0 auto 14px;}
+.login-logo-box img{display:block;height:38px;width:auto;}
 .brand-text .name{font-weight:600;font-size:15px;line-height:1.2;}
 .brand-text .sub{font-size:11px;color:#9FB0BC;letter-spacing:.02em;}
 .sync-pill{font-size:11px;color:#9FB0BC;font-family:'IBM Plex Mono',monospace;display:flex;align-items:center;gap:6px;}
@@ -214,7 +214,7 @@ canvas.sig-pad{width:100%;height:150px;display:block;touch-action:none;cursor:cr
     <div class="brand">
       <div class="brand-logo-box"><img id="topbarLogo" src="" alt="Emirates Contracting"></div>
       <div class="brand-text">
-        <div class="name">Emirates Contracting</div>
+        <div class="name">Emirates Contracting Bahrain</div>
         <div class="sub">Lift service &amp; maintenance</div>
       </div>
     </div>
@@ -1216,7 +1216,7 @@ function printQR(liftId){
   const img = document.querySelector('#qrTarget img, #qrTarget canvas');
   const src = img.tagName==='CANVAS' ? img.toDataURL() : img.src;
   const w = window.open('', '_blank');
-  w.document.write(`<html><body style="text-align:center;font-family:sans-serif;padding:40px;"><h2>${esc(liftId)}</h2><img src="${src}" style="width:220px;"><p>Emirates Contracting — scan to open lift</p></body></html>`);
+  w.document.write(`<html><body style="text-align:center;font-family:sans-serif;padding:40px;"><h2>${esc(liftId)}</h2><img src="${src}" style="width:220px;"><p>Emirates Contracting Bahrain — scan to open lift</p></body></html>`);
   w.document.close(); w.print();
 }
 
@@ -2200,8 +2200,8 @@ function sendWhatsApp(idx){
   const digits = num.replace(/[^0-9]/g,'');
   if(!digits){ toast('Add a WhatsApp number first'); return; }
   const msg = j.reportUrl
-    ? `Dear ${j.customerName||'Customer'}, Your EC Lift Service Report is ready. Job No: ${j.jobId} | Lift ID: ${j.liftId} | Date: ${fmtDate(j.date)} | View Report: ${j.reportUrl}`
-    : `Dear ${j.customerName||'Customer'}, Your EC Lift Service Report is ready. Job No: ${j.jobId} | Lift: ${j.liftId} | Date: ${fmtDate(j.date)} — PDF attached below. Emirates Contracting.`;
+    ? `Dear ${j.customerName||'Customer'}, Your EC Lift Service Report is ready. Job No: ${j.jobId} | Lift ID: ${j.liftId} | Date: ${fmtDate(j.date)} | View Report: ${j.reportUrl}\n\nEmirates Contracting, Bahrain`
+    : `Dear ${j.customerName||'Customer'}, Your EC Lift Service Report is ready. Job No: ${j.jobId} | Lift: ${j.liftId} | Date: ${fmtDate(j.date)} — PDF attached below. Emirates Contracting, Bahrain.`;
   window.open(`https://wa.me/${digits}?text=${encodeURIComponent(msg)}`, '_blank');
   j.whatsappStatus = 'Sent';
   saveDB();
@@ -2219,8 +2219,8 @@ function sendEmail(){
   if(!j.customerEmail){ toast('Add a customer email first'); return; }
   const subject = `Service report — ${j.liftId} — ${j.jobId}`;
   const bodyText = j.reportUrl
-    ? `Hello ${j.customerName||''},\n\nYour lift service report for ${j.liftId} (job ${j.jobId}, ${fmtDate(j.date)}) is ready.\n\nView report: ${j.reportUrl}\n\nEmirates Contracting`
-    : `Hello ${j.customerName||''},\n\nYour lift service report for ${j.liftId} (job ${j.jobId}, ${fmtDate(j.date)}) is complete. Please find the attached PDF.\n\nEmirates Contracting`;
+    ? `Hello ${j.customerName||''},\n\nYour lift service report for ${j.liftId} (job ${j.jobId}, ${fmtDate(j.date)}) is ready.\n\nView report: ${j.reportUrl}\n\nEmirates Contracting, Bahrain`
+    : `Hello ${j.customerName||''},\n\nYour lift service report for ${j.liftId} (job ${j.jobId}, ${fmtDate(j.date)}) is complete. Please find the attached PDF.\n\nEmirates Contracting, Bahrain`;
   const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(j.customerEmail)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(bodyText)}`;
   window.open(gmailUrl, '_blank');
 }
@@ -2466,7 +2466,7 @@ function buildPDFDoc(j){
   ]);
 
   doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(140,140,140);
-  doc.text('Emirates Contracting  |  Lift Maintenance Service Report', pw/2, 812, {align:'center'});
+  doc.text('Emirates Contracting, Bahrain  |  Lift Maintenance Service Report', pw/2, 812, {align:'center'});
 
   return doc;
 }
