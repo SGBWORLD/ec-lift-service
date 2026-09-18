@@ -1,6 +1,6 @@
 {
   "name": "Emirates Contracting — Lift Service",
-  "short_name": "EC Lift",
+  "short_name": "ECB Lift",
   "description": "Digital lift service reporting for Emirates Contracting technicians and back office.",
   "start_url": "./EC_Lift_Service_App.html",
   "scope": "./",
