@@ -237,7 +237,7 @@ canvas.sig-pad{width:100%;height:150px;display:block;touch-action:none;cursor:cr
     <button data-view="jobdue">Job Due</button>
     <button data-view="lifts">Lifts</button>
     <button data-view="jobs">Jobs</button>
-    <button data-view="newjob">New job</button>
+    <button data-view="newjob">New / Walk-In Customer</button>
     <button data-view="customers">Customers</button>
     <button data-view="dashboard">Dashboard</button>
   </div>
@@ -519,7 +519,7 @@ function mkJob(overrides){
   Object.entries(CHECKLIST_SECTIONS).forEach(([sec, items])=>{ checklist[sec] = items.map(()=>({status:'', issue:'', photoId:''})); });
   return Object.assign({
     jobId:'', jobCardNo:'', liftId:'', customerId:'', siteId:'', date:'', technician:'', status:'Open',
-    customerName:'', customerPhone:'', whatsappNumbers:[''], customerEmail:'', callAttendedBy:'', address:'', timeIn:'', timeOut:'',
+    customerName:'', customerPhone:'', whatsappNumbers:[''], customerEmail:'', contactPerson:'', callAttendedBy:'', address:'', timeIn:'', timeOut:'',
     type:'Repair', arrivalStatus:'', breakdownReason:'', rectification:'',
     notes:'', charge:'', paymentMethod:'Cash',
     priority:'Medium', finalStatus:'', whatsappStatus:'Pending', parts:[], reportUrl:'',
@@ -854,6 +854,89 @@ function openCustomerModal(customerId, onSaved){
       </div>
     </div>`;
   window._customerModalOnSaved = onSaved;
+}
+function openConvertWalkInModal(jobId){
+  const j = DB.jobs.find(x=>x.jobId===jobId);
+  if(!j) return;
+  const root = document.getElementById('modal-root');
+  root.classList.remove('hidden');
+  root.innerHTML = `
+    <div class="modal-backdrop" onclick="if(event.target===this) closeModal()">
+      <div class="modal-card" style="max-width:480px;">
+        <h3 style="text-align:left;">Convert to registered customer</h3>
+        <div style="text-align:left;max-height:70vh;overflow-y:auto;padding-right:4px;">
+          <div class="legend" style="margin-bottom:10px;">From walk-in job ${esc(j.jobId)}. Review and complete the details below — this creates the customer, site, and lift in one go and links this job to them.</div>
+          <label>Customer ID</label><input id="cw-custid" type="text" value="${esc(suggestNextCustomerId())}">
+          <label style="margin-top:8px;">Customer / building name</label><input id="cw-name" type="text" value="${esc(j.customerName)}">
+          <label style="margin-top:8px;">Customer type</label>
+          <select id="cw-type">${['AMC','Cash Customer','Service On Call'].map(t=>`<option>${t}</option>`).join('')}</select>
+          <div class="grid-2" style="margin-top:8px;">
+            <div><label>Contact person</label><input id="cw-contact" type="text" value="${esc(j.contactPerson)}"></div>
+            <div><label>Phone</label><input id="cw-phone" type="text" value="${esc(j.customerPhone)}"></div>
+          </div>
+          <div class="grid-2" style="margin-top:8px;">
+            <div><label>WhatsApp</label><input id="cw-whatsapp" type="text" value="${esc((j.whatsappNumbers||[])[0]||'')}"></div>
+            <div><label>Email</label><input id="cw-email" type="text" value="${esc(j.customerEmail)}"></div>
+          </div>
+          <label style="margin-top:8px;">Address</label><input id="cw-address" type="text" value="${esc(j.address)}">
+          <hr style="margin:14px 0;border:none;border-top:1px solid var(--line);">
+          <label>Site ID</label><input id="cw-siteid" type="text" value="${esc(suggestNextSiteId())}">
+          <label style="margin-top:8px;">Site / building name</label><input id="cw-sitename" type="text" value="${esc(j.customerName)}">
+          <label style="margin-top:8px;">Site address</label><input id="cw-siteaddress" type="text" value="${esc(j.address)}">
+          <hr style="margin:14px 0;border:none;border-top:1px solid var(--line);">
+          <label>Lift ID</label><input id="cw-liftid" type="text" placeholder="EC-LFT-XXXX">
+          <div id="cw-err" class="field-err" style="display:none;margin-top:8px;"></div>
+        </div>
+        <div class="actions">
+          <button class="btn secondary" onclick="closeModal()">Cancel</button>
+          <button class="btn" onclick='saveConvertWalkIn("${esc(jobId)}")'>Create &amp; link job</button>
+        </div>
+      </div>
+    </div>`;
+}
+function saveConvertWalkIn(jobId){
+  const j = DB.jobs.find(x=>x.jobId===jobId);
+  if(!j) return;
+  const errEl = document.getElementById('cw-err');
+  const custId = document.getElementById('cw-custid').value.trim();
+  const custName_ = document.getElementById('cw-name').value.trim();
+  const siteId = document.getElementById('cw-siteid').value.trim();
+  const liftId = document.getElementById('cw-liftid').value.trim();
+  if(!custId || !custName_ || !siteId || !liftId){
+    errEl.textContent = 'Customer ID, name, Site ID, and Lift ID are all required.';
+    errEl.style.display = 'block';
+    return;
+  }
+  if(DB.customers.some(c=>c.id===custId)){ errEl.textContent='That Customer ID is already in use.'; errEl.style.display='block'; return; }
+  if(DB.sites.some(s=>s.id===siteId)){ errEl.textContent='That Site ID is already in use.'; errEl.style.display='block'; return; }
+  if(DB.lifts.some(l=>l.id===liftId)){ errEl.textContent='That Lift ID is already in use.'; errEl.style.display='block'; return; }
+
+  DB.customers.push({
+    id: custId, name: custName_, type: document.getElementById('cw-type').value,
+    contactPerson: document.getElementById('cw-contact').value.trim(),
+    phone: document.getElementById('cw-phone').value.trim(),
+    whatsapp: document.getElementById('cw-whatsapp').value.trim(),
+    email: document.getElementById('cw-email').value.trim(),
+    address: document.getElementById('cw-address').value.trim(),
+    status: 'Active', contractId:'', contractStart:'', contractEnd:'',
+    maintenanceFrequency:'Monthly', serviceWindowStart:'', serviceWindowEnd:'', nextServiceDue:''
+  });
+  DB.sites.push({
+    id: siteId, customerId: custId,
+    name: document.getElementById('cw-sitename').value.trim(),
+    address: document.getElementById('cw-siteaddress').value.trim(),
+    status: 'Active'
+  });
+  DB.lifts.push({ id: liftId, customerId: custId, siteId: siteId, status: 'Active' });
+
+  j.customerId = custId;
+  j.siteId = siteId;
+  j.liftId = liftId;
+  saveDB(j);
+  syncMetaToSheet();
+  closeModal();
+  toast('Customer, site, and lift created — job linked');
+  renderDashboard();
 }
 function suggestNextCustomerId(){
   let n = (DB.customers||[]).length + 1;
@@ -1409,7 +1492,7 @@ function renderJobs(){
   const rows = sorted.map(j=>`
     <div class="row-card" onclick="openJob('${esc(j.jobId)}')">
       <div class="row-top">
-        <div><div class="row-title">${esc(j.jobId)} — ${esc(j.liftId)}</div><div class="row-id">${esc(j.customerName||'No customer name')}</div></div>
+        <div><div class="row-title">${esc(j.jobId)} — ${j.liftId ? esc(j.liftId) : 'Walk-in / New customer'}</div><div class="row-id">${esc(j.customerName||'No customer name')}</div></div>
         <span class="badge ${j.status.toLowerCase().replace(' ','')}">${esc(j.status)}</span>
       </div>
       <div class="row-meta">${fmtDate(j.date)} · ${esc(j.technician||'Unassigned')} · ${esc(j.type)}</div>
@@ -1427,21 +1510,25 @@ function clearJobFilter(e){ e.preventDefault(); window._jobFilter=null; renderJo
 /* ---------- NEW JOB view ---------- */
 function renderNewJob(){
   const el = document.getElementById('view-newjob');
-  const liftOpts = DB.lifts.map(l=>`<option value="${esc(l.id)}">${esc(l.id)} — ${esc(custName(l.customerId)||'unlinked')}</option>`).join('');
   el.innerHTML = `
-    <div class="section-head"><h1>New job</h1></div>
+    <div class="section-head"><h1>New / Walk-In Customer</h1></div>
     <div class="panel">
+      <div class="desc" style="margin-bottom:14px;">For a customer or site that isn't registered yet — a cold inspection, a walk-in complaint, or a one-off callout. Fill what you know now; Back Office will register them properly and link this to a lift afterwards. Already-registered lifts should be opened by scanning their QR code instead.</div>
       <div class="grid-2">
-        <div><label>Lift</label><select id="nj-lift" onchange="onNewJobLiftChange()"><option value="">Select a lift</option>${liftOpts}</select></div>
+        <div><label>Customer / building name</label><input id="nj-cust" type="text" placeholder="e.g. Al Noor Tower"></div>
+        <div><label>Contact person <span class="legend" style="margin:0;">(optional)</span></label><input id="nj-contact" type="text" placeholder="Name"></div>
+      </div>
+      <div class="grid-2">
+        <div><label>Phone number</label><input id="nj-phone" type="text" placeholder="+973 XXXX XXXX"></div>
+        <div><label>WhatsApp <span class="legend" style="margin:0;">(optional)</span></label><input id="nj-whatsapp" type="text" placeholder="+973 XXXX XXXX"></div>
+      </div>
+      <div class="grid-2">
+        <div><label>Email <span class="legend" style="margin:0;">(optional)</span></label><input id="nj-email" type="text" placeholder="name@company.com"></div>
+        <div><label>Address</label><input id="nj-addr" type="text" placeholder="Building, road, area"></div>
+      </div>
+      <div class="grid-2">
         <div><label>Date</label><input id="nj-date" type="date" value="${new Date().toISOString().slice(0,10)}"></div>
-      </div>
-      <div class="grid-2">
         <div><label>Technician</label><input id="nj-tech" type="text" placeholder="Name" value="${esc(TECH_NAME)}"></div>
-        <div><label>Call attended by</label><input id="nj-attend" type="text" placeholder="Name"></div>
-      </div>
-      <div class="grid-2">
-        <div><label>Customer name</label><input id="nj-cust" type="text" placeholder="Auto-fills from lift, or type manually"></div>
-        <div><label>Address</label><input id="nj-addr" type="text" placeholder="Auto-fills from lift, or type manually"></div>
       </div>
       <div class="grid-2">
         <div><label>Time in</label><input id="nj-timein" type="time"></div>
@@ -1449,7 +1536,7 @@ function renderNewJob(){
       </div>
       <label>Job type</label>
       <div class="chip-row" id="nj-type-row">
-        ${['Breakdown','Repair','AMC','Module'].map((t,i)=>`<div class="chip ${i===1?'on':''}" data-type="${t}" onclick="pickType(this)">${t}</div>`).join('')}
+        ${['Inspection','Breakdown','Repair','AMC','Module'].map((t,i)=>`<div class="chip ${i===0?'on':''}" data-type="${t}" onclick="pickType(this)">${t}</div>`).join('')}
       </div>
       <label>Notes</label>
       <textarea id="nj-notes" placeholder="Routine check, reported fault, etc."></textarea>
@@ -1458,25 +1545,19 @@ function renderNewJob(){
     </div>
   `;
 }
-function onNewJobLiftChange(){
-  const liftId = document.getElementById('nj-lift').value;
-  const lift = DB.lifts.find(l=>l.id===liftId);
-  if(!lift) return;
-  document.getElementById('nj-cust').value = custName(lift.customerId);
-  document.getElementById('nj-addr').value = siteAddress(lift.siteId);
-}
 function pickType(chip){
   const row = chip.closest('.chip-row');
   row.querySelectorAll('.chip').forEach(c=>c.classList.remove('on'));
   chip.classList.add('on');
 }
 function createJob(){
-  const liftId = document.getElementById('nj-lift').value;
   const date = document.getElementById('nj-date').value;
   const tech = document.getElementById('nj-tech').value.trim();
+  const customerName = document.getElementById('nj-cust').value.trim();
+  const phone = document.getElementById('nj-phone').value.trim();
   const errEl = document.getElementById('nj-err');
-  if(!liftId || !date || !tech){
-    errEl.textContent = 'Select a lift, a date, and enter a technician.';
+  if(!date || !tech || !customerName || !phone){
+    errEl.textContent = 'Enter at least a date, technician, customer/building name, and phone number.';
     errEl.style.display='block';
     return;
   }
@@ -1484,17 +1565,14 @@ function createJob(){
   DB.counters.job += 1;
   const jobId = 'JOB-' + String(DB.counters.job).padStart(3,'0');
   const jobCardNo = 'JC-' + String(DB.counters.job).padStart(3,'0');
-  const type = document.querySelector('#nj-type-row .chip.on')?.dataset.type || 'Repair';
-  const lift = DB.lifts.find(l=>l.id===liftId);
-  const cust = lift ? DB.customers.find(x=>x.id===lift.customerId) : null;
+  const type = document.querySelector('#nj-type-row .chip.on')?.dataset.type || 'Inspection';
+  const whatsapp = document.getElementById('nj-whatsapp').value.trim();
   const job = mkJob({
-    jobId, jobCardNo, liftId, date, technician:tech,
-    customerId: lift ? lift.customerId : '', siteId: lift ? lift.siteId : '',
-    callAttendedBy: document.getElementById('nj-attend').value.trim(),
-    customerName: document.getElementById('nj-cust').value.trim(),
-    address: document.getElementById('nj-addr').value.trim(),
-    customerPhone: cust ? (cust.phone||'') : '', customerEmail: cust ? (cust.email||'') : '',
-    whatsappNumbers: cust && cust.whatsapp ? [cust.whatsapp] : [''],
+    jobId, jobCardNo, liftId:'', customerId:'', siteId:'', date, technician:tech,
+    contactPerson: document.getElementById('nj-contact').value.trim(),
+    customerName, address: document.getElementById('nj-addr').value.trim(),
+    customerPhone: phone, customerEmail: document.getElementById('nj-email').value.trim(),
+    whatsappNumbers: whatsapp ? [whatsapp] : [''],
     timeIn: document.getElementById('nj-timein').value,
     timeOut: document.getElementById('nj-timeout').value,
     type, notes: document.getElementById('nj-notes').value.trim(),
@@ -1521,7 +1599,7 @@ function renderJobDetail(){
   if(!j){ el.innerHTML = '<div class="empty">Job not found.</div>'; return; }
   el.innerHTML = `
     <div class="section-head">
-      <h1>${esc(j.jobId)} <span style="color:var(--ink-soft);font-weight:400;">— ${esc(j.liftId)}</span></h1>
+      <h1>${esc(j.jobId)} <span style="color:var(--ink-soft);font-weight:400;">— ${j.liftId ? esc(j.liftId) : 'Walk-in / New customer'}</span></h1>
       <span class="badge ${j.status.toLowerCase()}">${esc(j.status)}</span>
     </div>
     <div class="subnav">
@@ -2503,8 +2581,32 @@ function renderDashboard(){
     </div>`;
   }).join('') : '<div class="empty">Nothing due in the next 7 days.</div>';
 
+  const walkIns = jobs.filter(j=>!j.liftId).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  const walkInsHtml = walkIns.length ? walkIns.map(j=>`
+    <div class="row-card" style="padding:10px 12px;margin-bottom:6px;">
+      <div class="row-top">
+        <div>
+          <div class="row-title" style="font-size:13px;">${esc(j.customerName||'Unnamed')}</div>
+          <div class="row-id">${esc(j.jobId)} · ${esc(j.address||'No address given')}</div>
+        </div>
+        <span class="badge pending">${esc(j.type||'Inspection')}</span>
+      </div>
+      <div class="row-meta">${fmtDate(j.date)} · ${esc(j.technician||'—')} · ${esc(j.customerPhone||'No phone')}</div>
+      <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn secondary" style="padding:6px 12px;font-size:12px;" onclick="openJob('${esc(j.jobId)}')">Open job</button>
+        <button class="btn" style="padding:6px 12px;font-size:12px;" onclick="openConvertWalkInModal('${esc(j.jobId)}')">Convert to registered customer</button>
+      </div>
+    </div>`).join('') : '<div class="empty">No walk-in entries waiting.</div>';
+
   el.innerHTML = `
     <div class="section-head"><h1>Back office dashboard</h1><span class="count">All lifts, all technicians</span></div>
+
+    ${walkIns.length ? `
+    <div class="panel" style="margin-bottom:18px;border:1.5px solid var(--yellow);background:var(--amber-bg);">
+      <h2 style="margin-top:0;">New walk-in entries</h2>
+      <div class="desc">Jobs technicians created for a customer or site that isn't registered yet. Convert each one to a proper customer, site, and lift once you've reviewed it.</div>
+      ${walkInsHtml}
+    </div>` : ''}
 
     <div class="panel" style="margin-bottom:18px;">
       <h2>Upcoming this week</h2>
@@ -2644,7 +2746,7 @@ function renderDashboardList(){
   const html = list.map(j=>`
     <div class="row-card">
       <div class="row-top" onclick="openFromDashboard('${esc(j.jobId)}')" style="cursor:pointer;">
-        <div><div class="row-title">${esc(j.jobId)} — ${esc(j.liftId)}</div><div class="row-id">${esc(j.customerName||'No customer name')} · Tech: ${esc(j.technician||'—')}${j.priority&&j.priority!=='Medium'?' · '+esc(j.priority)+' priority':''}</div></div>
+        <div><div class="row-title">${esc(j.jobId)} — ${j.liftId ? esc(j.liftId) : 'Walk-in / New customer'}</div><div class="row-id">${esc(j.customerName||'No customer name')} · Tech: ${esc(j.technician||'—')}${j.priority&&j.priority!=='Medium'?' · '+esc(j.priority)+' priority':''}</div></div>
         <span class="badge ${j.status.toLowerCase().replace(' ','')}">${esc(j.status)}</span>
       </div>
       <div class="row-meta" onclick="openFromDashboard('${esc(j.jobId)}')" style="cursor:pointer;">${fmtDate(j.date)} · ${esc(j.type)}${durationText(j.timeIn,j.timeOut)?' · '+durationText(j.timeIn,j.timeOut):''} ${['Report Generated','Customer Acknowledged'].includes(j.status) ? '· report available' : ''}</div>
